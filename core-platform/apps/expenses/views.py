@@ -22,20 +22,25 @@ class ExpenseClaimSubmitView(generics.CreateAPIView):
         # Pass employee as the current authenticated user
         serializer.save(employee=self.request.user)
 
-class ExpenseClaimListView(generics.ListAPIView):
+class ExpenseClaimListView(generics.ListCreateAPIView):
     """
-    List all submitted claims.
+    List all submitted claims, or submit a new claim.
     Regular employees see only their own claims.
     Managers/Staff see all claims.
     """
     serializer_class = ExpenseClaimSerializer
     permission_classes = [permissions.IsAuthenticated]
+    parser_classes = (MultiPartParser, FormParser, JSONParser)
 
     def get_queryset(self):
         user = self.request.user
         if user.is_staff:
             return ExpenseClaim.objects.all().order_by('-created_at')
         return ExpenseClaim.objects.filter(employee=user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        # Pass employee as the current authenticated user
+        serializer.save(employee=self.request.user)
 
 class ExpenseClaimDetailView(generics.RetrieveAPIView):
     """

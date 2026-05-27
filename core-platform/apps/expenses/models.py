@@ -5,6 +5,9 @@ class ExpenseClaim(models.Model):
     STATUS_CHOICES = [
         ('DRAFT', 'Draft'),
         ('SUBMITTED', 'Submitted - Pending Routing'),
+        ('UNDER_REVIEW', 'Under Review'),
+        ('APPROVED', 'Approved'),
+        ('REJECTED', 'Rejected'),
         ('FAST_TRACK', 'Fast-Track Queue'),
         ('MANAGER_REVIEW', 'Manager Review'),
         ('ESCALATED', 'Finance Escalation'),
