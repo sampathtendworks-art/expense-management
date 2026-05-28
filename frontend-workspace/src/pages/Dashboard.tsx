@@ -6,7 +6,7 @@ import {
   Clock, 
   AlertCircle, 
   XCircle, 
-  DollarSign, 
+  IndianRupee, 
   Zap, 
   ShieldCheck,
   TrendingUp,
@@ -18,10 +18,10 @@ export const Dashboard: React.FC = () => {
   const { claims, currentRole } = useClaims();
 
   const roleMeta = {
-    employee: { name: 'Marcus Richardson', label: 'Employee Submitter' },
-    manager: { name: 'Sarah Chen', label: 'Reporting Manager' },
-    finance: { name: 'David Miller', label: 'Financial Controller' },
-    admin: { name: 'Alex Sobel', label: 'System Admin' },
+    employee: { name: 'Arjun Sharma', label: 'Employee Submitter' },
+    manager: { name: 'Priya Nair', label: 'Reporting Manager' },
+    finance: { name: 'Rahul Mehta', label: 'Financial Controller' },
+    admin: { name: 'Sneha Patel', label: 'System Admin' },
   };
 
   const activeUser = roleMeta[currentRole] || roleMeta.employee;
@@ -31,8 +31,6 @@ export const Dashboard: React.FC = () => {
   const pending = claims.filter(c => c.status === 'pending' || c.status === 'submitted').length;
   const flagged = claims.filter(c => c.status === 'flagged').length;
   const paid = claims.filter(c => c.status === 'paid').length;
-  
-  // Calculate total amount correctly by stripping non-numeric characters
   const totalAmountNum = claims.reduce((sum, c) => {
     if (c.status === 'draft' || c.status === 'rejected') return sum;
     const amtStr = c.totalAmount ? c.totalAmount.replace(/[₹,]/g, '') : '0';
@@ -41,12 +39,10 @@ export const Dashboard: React.FC = () => {
 
   const totalAmountFormatted = totalAmountNum.toLocaleString('en-IN');
 
-  // Calculate average trust score
   const avgTrustScore = claims.length > 0
     ? Math.round(claims.reduce((sum, c) => sum + (c.trustScore || 82), 0) / claims.length)
     : 82;
 
-  // Chart Data compilation
   const categoryMap: { [key: string]: number } = {};
   claims.forEach(c => {
     if (c.status === 'draft' || c.status === 'rejected') return;
@@ -61,29 +57,25 @@ export const Dashboard: React.FC = () => {
 
   return (
     <div className="p-8 space-y-8 max-w-7xl mx-auto pb-20">
-      
-      {/* Welcome Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase">WELCOME BACK, {activeUser.name.split(' ')[0]}</h2>
+          <h2 className="text-3xl font-black text-primary tracking-tight uppercase">WELCOME BACK, {activeUser.name.split(' ')[0]}</h2>
           <p className="text-slate-500 mt-2 font-medium">Logged in as {activeUser.label} • Here is your expense processing overview</p>
         </div>
-        <div className="flex items-center gap-2 bg-indigo-50 border border-indigo-100/50 px-4 py-2 rounded-2xl">
-          <Activity size={16} className="text-indigo-600 animate-pulse" />
+        <div className="flex items-center gap-2 bg-primary/10 border border-primary/20 px-4 py-2 rounded-2xl">
+          <Activity size={16} className="text-primary animate-pulse" />
           <span className="text-[10px] font-black text-indigo-750 uppercase tracking-wider">AI Operations Active</span>
         </div>
       </div>
-
-      {/* Main Stats Cards Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard
           title="All Expense Claims"
           value={totalClaims.toString()}
-          icon={DollarSign}
+          icon={IndianRupee}
           trend={12}
           trendType="up"
           subtitle="Submitted items"
-          color="black"
+          color="indigo"
         />
         <StatCard
           title="Approved Ledger"
@@ -124,19 +116,16 @@ export const Dashboard: React.FC = () => {
         <StatCard
           title="Total Audited Spend"
           value={`₹${totalAmountFormatted}`}
-          icon={DollarSign}
+          icon={IndianRupee}
           trend={15}
           trendType="up"
           subtitle="Active corporate cost"
           color="emerald"
         />
       </div>
-
-      {/* Visual Charts & Info Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
-        {/* Left 2 Cols: Spend Distribution chart */}
-        <div className="lg:col-span-2 bg-white p-6 border border-slate-100 rounded-3xl shadow-sm space-y-6">
+        <div className="lg:col-span-2 bg-white p-6 border border-slate-200 rounded-3xl shadow-premium space-y-6">
           <div>
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
               <TrendingUp size={14} />
@@ -146,13 +135,13 @@ export const Dashboard: React.FC = () => {
           </div>
           <div className="h-64 w-full">
             {categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart data={categoryData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} tickLine={false} />
                   <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
                   <Tooltip formatter={(value) => [typeof value === 'number' ? `₹${value.toLocaleString('en-IN')}` : '', 'Amount']} />
-                  <Bar dataKey="amount" fill="#000000" radius={[4, 4, 0, 0]} />
+                  <Bar dataKey="amount" fill="#10B981" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             ) : (
@@ -162,9 +151,7 @@ export const Dashboard: React.FC = () => {
             )}
           </div>
         </div>
-
-        {/* Right 1 Col: AI Trust Index & Operations */}
-        <div className="bg-slate-900 text-white p-6 rounded-3xl shadow-xl flex flex-col justify-between space-y-6">
+        <div className="bg-primary text-white p-6 rounded-3xl shadow-premium flex flex-col justify-between space-y-6">
           <div className="space-y-4">
             <h4 className="text-xs font-black uppercase tracking-widest text-yellow-400 flex items-center gap-1.5">
               <Zap size={14} className="animate-pulse" />

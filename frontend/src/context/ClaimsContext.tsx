@@ -1,15 +1,19 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
-// --- Types & Interfaces ---
 
 export interface ExpenseItem {
   id: number;
-  date: string;
+  expense_date: string;
+  merchant_name: string;
   category: string;
   amount: string;
-  tax: string;
-  desc: string;
-  billable: boolean;
+  currency_code: string;
+  payment_mode: string;
+  project_cost_centre: string;
+  description: string;
+  receipt_file?: string;
+  ocrConfirmed?: boolean;
+  ocrValue?: string;
 }
 
 export interface Claim {
@@ -20,7 +24,7 @@ export interface Claim {
   startDate: string;
   endDate: string;
   totalAmount: string;
-  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'pending' | 'sent_back' | 'flagged' | 'paid';
+  status: 'draft' | 'submitted' | 'approved' | 'rejected' | 'pending' | 'sent_back' | 'flagged' | 'paid' | 'under_review' | 'fast_track' | 'manager_review' | 'escalated';
   date: string;
   items: ExpenseItem[];
   trustScore?: number;
@@ -92,14 +96,14 @@ interface ClaimsContextType {
 
 const ClaimsContext = createContext<ClaimsContextType | undefined>(undefined);
 
-// --- Default Policies ---
 const DEFAULT_POLICIES: Policy[] = [
-  { category: 'Travel Expenses', limit: 50000, mandatoryAttachment: true, backdateLimitDays: 30 },
-  { category: 'Meal and Entertainment', limit: 1500, mandatoryAttachment: true, backdateLimitDays: 30 },
-  { category: 'Internet/Broadband Allowances', limit: 3000, mandatoryAttachment: false, backdateLimitDays: 45 },
-  { category: 'Children Education Allowances', limit: 5000, mandatoryAttachment: true, backdateLimitDays: 60 },
-  { category: 'Mileage Allowance', limit: 10000, mandatoryAttachment: false, backdateLimitDays: 30 },
-  { category: 'Others', limit: 2000, mandatoryAttachment: false, backdateLimitDays: 30 },
+  { category: 'Local Travel', limit: 50000, mandatoryAttachment: true, backdateLimitDays: 30 },
+  { category: 'Meals & Entertainment', limit: 1500, mandatoryAttachment: true, backdateLimitDays: 30 },
+  { category: 'Flights', limit: 75000, mandatoryAttachment: true, backdateLimitDays: 30 },
+  { category: 'Lodging', limit: 10000, mandatoryAttachment: true, backdateLimitDays: 45 },
+  { category: 'Office Supplies', limit: 5000, mandatoryAttachment: false, backdateLimitDays: 30 },
+  { category: 'Fuel', limit: 8000, mandatoryAttachment: false, backdateLimitDays: 30 },
+  { category: 'Other', limit: 2000, mandatoryAttachment: false, backdateLimitDays: 30 },
 ];
 
 export const ClaimsProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
@@ -118,8 +122,7 @@ export const ClaimsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const saved = localStorage.getItem('tendworks_claims');
       return saved ? JSON.parse(saved) : [];
-    } catch (err) {
-      console.error('Failed to load claims:', err);
+    } catch {
       return [];
     }
   });
@@ -128,7 +131,7 @@ export const ClaimsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
     try {
       const saved = localStorage.getItem('tendworks_policies');
       return saved ? JSON.parse(saved) : DEFAULT_POLICIES;
-    } catch (err) {
+    } catch {
       return DEFAULT_POLICIES;
     }
   });
@@ -140,7 +143,7 @@ export const ClaimsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
         { id: 'BCH-2024-07', date: '10 Oct, 2024', amount: '₹2,45,600', count: 12, status: 'Paid', claimIds: [] },
         { id: 'BCH-2024-06', date: '25 Sep, 2024', amount: '₹1,89,200', count: 8, status: 'Paid', claimIds: [] }
       ];
-    } catch (err) {
+    } catch {
       return [];
     }
   });
@@ -202,15 +205,13 @@ export const ClaimsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
   };
 
   const resetUserTrustScore = () => {
-    setUserTrustScore(80); // baseline default 80 upon legitimate dispute resolution
+    setUserTrustScore(80);
     addNotification('Trust Score Reset', 'Employee trust score reset to baseline (80%) upon dispute resolution.', 'info');
   };
 
   const addClaim = (claim: Claim) => {
     setClaims(prev => [claim, ...prev]);
     addNotification('New Claim Submitted', `Claim ${claim.id} containing ${claim.items.length} items was submitted.`, 'info');
-
-    // Trigger submission-time Trust Score adjustments
     if (claim.outsideHours) {
       adjustUserTrustScore('SUBMIT_OUTSIDE_HOURS');
     }
@@ -253,9 +254,7 @@ export const ClaimsProvider: React.FC<{ children: React.ReactNode }> = ({ childr
           date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + 
                 ' • ' + new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })
         };
-        
         let newStatus = c.status;
-        // If dispute resolved by finance, add score bump
         if (role.toLowerCase().includes('finance') && text.toUpperCase().includes('DISPUTE RESOLVED')) {
           adjustUserTrustScore('DISPUTE_FAVORABLE_RESOLVED');
         }
@@ -451,4 +450,3 @@ export const useClaims = () => {
   }
   return context;
 };
-
