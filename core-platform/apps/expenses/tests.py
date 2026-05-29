@@ -7,6 +7,8 @@ from unittest.mock import patch
 from .models import ExpenseClaim, ExpenseLineItem
 from django.core.files.uploadedfile import SimpleUploadedFile
 import json
+from datetime import timedelta
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -200,3 +202,83 @@ class ExpensePlatformTests(TestCase):
         self.assertIn('Approved Claim', content)
         self.assertIn('Fast Track Claim', content)
         self.assertNotIn('Draft Claim', content)
+
+    def test_expense_claim_crud(self):
+        # Create a claim
+        claim = ExpenseClaim.objects.create(
+            employee=self.user,
+            title="Update Test",
+            total_amount=100.00,
+            status="DRAFT"
+        )
+        # 1. Update Claim (PATCH)
+        url = reverse('expense_claim_detail', kwargs={'pk': claim.id})
+        response = self.client.patch(url, {'title': 'Updated Title'})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        claim.refresh_from_db()
+        self.assertEqual(claim.title, 'Updated Title')
+
+        # 2. Delete Claim (DELETE)
+        response = self.client.delete(url)
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(ExpenseClaim.objects.filter(id=claim.id).count(), 0)
+
+    def test_expense_history(self):
+        # Create claims with various dates and statuses
+        # Approved Claim within 30 days
+        ExpenseClaim.objects.create(
+            employee=self.user,
+            title="Approved 30 Days",
+            total_amount=100.00,
+            status="APPROVED",
+            created_at=timezone.now() - timedelta(days=5)
+        )
+        # Fast Track Claim within 30 days
+        ExpenseClaim.objects.create(
+            employee=self.user,
+            title="Fast Track 30 Days",
+            total_amount=150.00,
+            status="FAST_TRACK",
+            created_at=timezone.now() - timedelta(days=10)
+        )
+        # Draft Claim within 30 days (should be excluded)
+        ExpenseClaim.objects.create(
+            employee=self.user,
+            title="Draft 30 Days",
+            total_amount=200.00,
+            status="DRAFT",
+            created_at=timezone.now() - timedelta(days=12)
+        )
+        
+        # Approved claim older than 30 days (should be excluded)
+        old_claim = ExpenseClaim.objects.create(
+            employee=self.user,
+            title="Approved Old",
+            total_amount=300.00,
+            status="APPROVED"
+        )
+        # Force created_at to be old (since auto_now_add makes it now)
+        ExpenseClaim.objects.filter(id=old_claim.id).update(created_at=timezone.now() - timedelta(days=35))
+
+        # Test GET direct route
+        url = reverse('expense_claim_history_direct', kwargs={'employee_id': self.user.id})
+        response = self.client.get(url)
+        
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # Only 2 claims (Approved 30 Days, Fast Track 30 Days) should match
+        self.assertEqual(len(response.data), 2)
+        titles = [c['title'] for c in response.data]
+        self.assertIn("Approved 30 Days", titles)
+        self.assertIn("Fast Track 30 Days", titles)
+        self.assertNotIn("Draft 30 Days", titles)
+        self.assertNotIn("Approved Old", titles)
+
+        # Test permissions: another user cannot view this user's history
+        another_user = User.objects.create_user(
+            username='employee2000',
+            password='password123'
+        )
+        self.client.force_authenticate(user=another_user)
+        response = self.client.get(url)
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+

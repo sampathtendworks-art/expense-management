@@ -7,6 +7,8 @@ from .serializers import ExpenseClaimSerializer
 from haystack.query import SearchQuerySet
 import logging
 import csv
+from datetime import timedelta
+from django.utils import timezone
 from django.http import HttpResponse
 
 logger = logging.getLogger(__name__)
@@ -44,9 +46,9 @@ class ExpenseClaimListView(generics.ListCreateAPIView):
         # Pass employee as the current authenticated user
         serializer.save(employee=self.request.user)
 
-class ExpenseClaimDetailView(generics.RetrieveAPIView):
+class ExpenseClaimDetailView(generics.RetrieveUpdateDestroyAPIView):
     """
-    Retrieve details of a specific claim.
+    Retrieve, update, or delete a specific claim.
     """
     serializer_class = ExpenseClaimSerializer
     permission_classes = [permissions.IsAuthenticated]
@@ -134,4 +136,29 @@ class FinanceCSVExportView(APIView):
             ])
 
         return response
+
+class ExpenseHistoryView(APIView):
+    """
+    Get a user's last 30 days of approved claims (APPROVED or FAST_TRACK).
+    """
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request, employee_id, *args, **kwargs):
+        # Allow employees to view their own history, or staff users to view anyone's history
+        if not request.user.is_staff and request.user.id != int(employee_id):
+            return Response(
+                {"detail": "You do not have permission to view this user's history."},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        thirty_days_ago = timezone.now() - timedelta(days=30)
+        
+        claims = ExpenseClaim.objects.filter(
+            employee_id=employee_id,
+            status__in=['APPROVED', 'FAST_TRACK'],
+            created_at__gte=thirty_days_ago
+        ).order_by('-created_at')
+
+        serializer = ExpenseClaimSerializer(claims, many=True, context={'request': request})
+        return Response(serializer.data)
 
