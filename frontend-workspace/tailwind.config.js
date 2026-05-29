@@ -7,23 +7,24 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: "#1E3A5F",
-        secondary: "#1e3a8a",
+        primary: "#2761aeff",
+        secondary: "#1239a2ff",
         accent: "#10B981",
         border: "#E5E7EB",
-        black: "#1F2937",
+        black: "#4A8FD1",
+        white: "#FAF8F3",
         slate: {
           50: '#F8FAFC',
           100: '#f1f5f9',
           200: '#E5E7EB',
           300: '#cbd5e1',
           400: '#94a3b8',
-          500: '#64748b',
-          600: '#475569',
-          700: '#334155',
-          800: '#1e293b',
-          900: '#1F2937',
-          950: '#0b0f19',
+          500: '#5a7db0ff',
+          600: '#3f659aff',
+          700: 'rgba(64, 110, 174, 1)',
+          800: '#133e83ff',
+          900: '#1f5196ff',
+          950: '#143484ff',
         }
       },
       boxShadow: {

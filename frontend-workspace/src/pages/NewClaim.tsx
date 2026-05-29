@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useClaims, type Claim } from '../context/ClaimsContext';
 import { 
@@ -36,6 +36,9 @@ interface ItemEntry {
   ocrConfirmed?: boolean;
 }
 
+const OCR_SIDECAR_URL = 'http://localhost:8001/api/v1/ocr/parse';
+const AI_SIDECAR_URL = 'http://localhost:8002/api/v1/evaluate-claim';
+
 export const NewClaim: React.FC = () => {
   const navigate = useNavigate();
   const { addClaim, policies, claims, userTrustScore } = useClaims();
@@ -53,6 +56,7 @@ export const NewClaim: React.FC = () => {
   const [items, setItems] = useState<ItemEntry[]>([
     { id: 1, expense_date: new Date().toISOString().split('T')[0], merchant_name: '', category: 'Local Travel', amount: '', currency_code: 'INR', payment_mode: 'cash', project_cost_centre: '', description: '' }
   ]);
+  const [livePolicyResult, setLivePolicyResult] = useState<any>(null);
 
   const [receiptFile, setReceiptFile] = useState<string | null>(null);
   const [bankStatementFile, setBankStatementFile] = useState<string | null>(null);
@@ -73,17 +77,6 @@ export const NewClaim: React.FC = () => {
   const [routingStep, setRoutingStep] = useState<number>(0);
   const [routingPathResult, setRoutingPathResult] = useState<'pathA' | 'pathB' | 'pathC' | null>(null);
 
-  const ocrMockData = {
-    title: 'Q4 Product Sync - Bangalore Offsite',
-    category: 'Travel Expenses',
-    projectCode: 'PRJ-2024-009',
-    startDate: '2024-10-18',
-    endDate: '2024-10-20',
-    itemAmount: '8500',
-    itemTax: '1530',
-    itemDesc: 'Indigo Ticket: DEL -> BLR'
-  };
-
   const calculateTotal = () => {
     const total = items.reduce((sum, item) => 
       sum + (parseFloat(item.amount) || 0), 0
@@ -95,7 +88,7 @@ export const NewClaim: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       setReceiptFile(file.name);
-      triggerAiParsing(file.name, 'Receipt');
+      triggerAiParsing(file);
     }
   };
 
@@ -103,41 +96,88 @@ export const NewClaim: React.FC = () => {
     const file = e.target.files?.[0];
     if (file) {
       setBankStatementFile(file.name);
-      triggerAiParsing(file.name, 'Bank Statement');
     }
   };
 
-  const triggerAiParsing = (_filename: string, _type: 'Receipt' | 'Bank Statement') => {
+  const triggerAiParsing = async (file: File) => {
     setAiOcrStatus('processing');
-    setTimeout(() => {
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch(OCR_SIDECAR_URL, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      
+      if (data.status === 'success') {
+        const extracted = data.extracted_data;
+        // Store extracted data for autofill
+        (window as any)._lastOcrData = extracted;
+        setAiOcrStatus('ready');
+      } else {
+        setAiOcrStatus('idle');
+      }
+    } catch (error) {
+      console.error('OCR Error:', error);
       setAiOcrStatus('ready');
-    }, 1500);
+    }
   };
 
   const handleAutoFill = () => {
+    const ocrData = (window as any)._lastOcrData;
+    if (!ocrData) return;
+
     setAiOcrStatus('autofilled');
-    setClaimTitle(ocrMockData.title);
-    setReportCategory(ocrMockData.category);
-    setProjectCode(ocrMockData.projectCode);
-    setTripStartDate(ocrMockData.startDate);
-    setTripEndDate(ocrMockData.endDate);
+    setClaimTitle(`Expense at ${ocrData.merchant_name}`);
+    setReportCategory(ocrData.category || 'Other');
+    setTripStartDate(ocrData.expense_date);
 
     setItems([
       {
         id: Date.now(),
-        expense_date: ocrMockData.startDate,
-        merchant_name: 'Indigo Cabs / Airlines',
-        category: ocrMockData.category,
-        amount: ocrMockData.itemAmount,
-        currency_code: 'INR',
+        expense_date: ocrData.expense_date,
+        merchant_name: ocrData.merchant_name,
+        category: ocrData.category || 'Other',
+        amount: ocrData.total_amount.toString(),
+        currency_code: ocrData.currency_code || 'INR',
         payment_mode: 'cash',
-        project_cost_centre: ocrMockData.projectCode,
-        description: ocrMockData.itemDesc,
-        ocrValue: ocrMockData.itemAmount,
+        project_cost_centre: projectCode,
+        description: `Automated scan from ${ocrData.merchant_name}`,
+        ocrValue: ocrData.total_amount.toString(),
         ocrConfirmed: true
       }
     ]);
   };
+
+  const performLiveCheck = useCallback(async () => {
+    const payload = {
+      current_trust_score: userTrustScore,
+      policy_violations_count: items.filter(i => evaluateItemPolicy(i).status === 'error').length,
+      ocr_results: { tampering_detected: ocrTamperingDetected },
+      outside_business_hours: outsideBusinessHours
+    };
+
+    try {
+      const response = await fetch(AI_SIDECAR_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      setLivePolicyResult(data);
+    } catch (e) {
+      console.error('Live AI check failed');
+    }
+  }, [userTrustScore, items, ocrTamperingDetected, outsideBusinessHours]);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      performLiveCheck();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [items, ocrTamperingDetected, outsideBusinessHours, performLiveCheck]);
 
   const evaluateRoutingPath = (): 'pathA' | 'pathB' | 'pathC' => {
     const totalVal = items.reduce((sum, item) => sum + (parseFloat(item.amount) || 0), 0);
@@ -464,7 +504,7 @@ export const NewClaim: React.FC = () => {
                     <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">Evidence & Automated Verification</label>
                     
                     <div className="grid grid-cols-2 gap-4">
-                      <div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-black transition-colors">
+                      <div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-[#1E3A5F] transition-colors">
                         <div>
                           <p className="text-xs font-black text-slate-800 uppercase tracking-wide">Receipt or Invoice</p>
                           <p className="text-[11px] text-slate-500 mt-1 font-medium">Upload a JPG, PNG or PDF copy of the transaction receipt.</p>
@@ -480,20 +520,20 @@ export const NewClaim: React.FC = () => {
                           <button 
                             type="button"
                             onClick={() => document.getElementById('receipt-file-picker')?.click()}
-                            className="w-full bg-white border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
+                            className="w-full bg-[#FAF8F3] border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
                           >
                             [ Upload Receipt ]
                           </button>
                         </div>
                         {receiptFile && (
-                          <div className="mt-2 text-[10px] text-slate-650 font-black bg-white border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
+                          <div className="mt-2 text-[10px] text-slate-650 font-black bg-[#FAF8F3] border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
                             <Paperclip size={12} className="text-slate-400 shrink-0" />
                             {receiptFile}
                           </div>
                         )}
                       </div>
 
-                      <div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-black transition-colors">
+                      <div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-[#1E3A5F] transition-colors">
                         <div>
                           <p className="text-xs font-black text-slate-800 uppercase tracking-wide">Bank Statement (PDF/CSV)</p>
                           <p className="text-[11px] text-slate-500 mt-1 font-medium">Provide statement for dynamic reconciliation check.</p>
@@ -509,13 +549,13 @@ export const NewClaim: React.FC = () => {
                           <button 
                             type="button"
                             onClick={() => document.getElementById('bank-file-picker')?.click()}
-                            className="w-full bg-white border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
+                            className="w-full bg-[#FAF8F3] border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
                           >
                             [ Upload Bank Statement ]
                           </button>
                         </div>
                         {bankStatementFile && (
-                          <div className="mt-2 text-[10px] text-slate-650 font-black bg-white border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
+                          <div className="mt-2 text-[10px] text-slate-650 font-black bg-[#FAF8F3] border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
                             <Paperclip size={12} className="text-slate-400 shrink-0" />
                             {bankStatementFile}
                           </div>
@@ -524,7 +564,7 @@ export const NewClaim: React.FC = () => {
                     </div>
 
                     {aiOcrStatus !== 'idle' && (
-                      <div className="p-5 bg-primary text-white rounded-2xl space-y-3 shadow-xl">
+                      <div className="p-5 bg-primary text-[#FAF8F3] rounded-2xl space-y-3 shadow-xl">
                         <div className="flex items-center justify-between">
                           <p className="text-xs font-black uppercase tracking-widest flex items-center gap-2 text-yellow-400">
                             <Zap size={14} className="animate-pulse" />
@@ -542,7 +582,7 @@ export const NewClaim: React.FC = () => {
                             <p className="text-[11px] text-slate-400 font-medium">Reading merchant name, date, total amount, taxes, and transaction details...</p>
                             <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
                               <motion.div 
-                                className="bg-white h-full" 
+                                className="bg-[#FAF8F3] h-full" 
                                 initial={{ width: 0 }} 
                                 animate={{ width: '100%' }} 
                                 transition={{ duration: 1.5 }}
@@ -554,15 +594,15 @@ export const NewClaim: React.FC = () => {
                         {aiOcrStatus !== 'processing' && (
                           <div className="flex items-center justify-between">
                             <div className="text-[11px] text-slate-350 space-y-0.5 font-semibold">
-                              <p>📌 <span className="font-black text-white">Merchant:</span> Indigo Cabs / Airlines</p>
-                              <p>💰 <span className="font-black text-white">Scanned Total:</span> ₹8,500.00 (Tax ₹1,530.00)</p>
-                              <p>📅 <span className="font-black text-white">Scanned Date:</span> 2024-10-18</p>
+                              <p>📌 <span className="font-black text-[#FAF8F3]">Merchant:</span> Indigo Cabs / Airlines</p>
+                              <p>💰 <span className="font-black text-[#FAF8F3]">Scanned Total:</span> ₹8,500.00 (Tax ₹1,530.00)</p>
+                              <p>📅 <span className="font-black text-[#FAF8F3]">Scanned Date:</span> 2024-10-18</p>
                             </div>
                             {aiOcrStatus === 'ready' && (
                               <button 
                                 type="button"
                                 onClick={handleAutoFill}
-                                className="bg-white text-primary px-5 py-2.5 rounded-xl text-xs font-black hover:bg-slate-100 transition-all uppercase tracking-widest cursor-pointer"
+                                className="bg-[#FAF8F3] text-primary px-5 py-2.5 rounded-xl text-xs font-black hover:bg-slate-100 transition-all uppercase tracking-widest cursor-pointer"
                               >
                                 [ Auto-Fill ]
                               </button>
@@ -588,7 +628,7 @@ export const NewClaim: React.FC = () => {
                   <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Expense Items</h3>
                   <button 
                     onClick={addItem}
-                    className="flex items-center gap-2 text-xs font-black bg-accent text-white px-4 py-2.5 rounded-xl hover:bg-emerald-600 transition-all uppercase tracking-widest cursor-pointer"
+                    className="flex items-center gap-2 text-xs font-black bg-accent text-[#FAF8F3] px-4 py-2.5 rounded-xl hover:bg-emerald-600 transition-all uppercase tracking-widest cursor-pointer"
                   >
                     <Plus size={16} />
                     ADD ITEM
@@ -866,7 +906,7 @@ export const NewClaim: React.FC = () => {
               <button 
                 onClick={nextStep}
                 disabled={isSubmitting}
-                className="bg-accent text-white px-8 py-3 rounded-xl text-xs font-black hover:bg-emerald-600 transition-all shadow-lg shadow-accent/10 flex items-center gap-2 uppercase tracking-widest cursor-pointer"
+                className="bg-accent text-[#FAF8F3] px-8 py-3 rounded-xl text-xs font-black hover:bg-emerald-600 transition-all shadow-lg shadow-accent/10 flex items-center gap-2 uppercase tracking-widest cursor-pointer"
               >
                 {currentStep === 'review' ? '[ Submit Claim ]' : 'Continue'}
                 <ArrowRight size={16} />
@@ -876,7 +916,7 @@ export const NewClaim: React.FC = () => {
         </div>
 
         <div className="space-y-6">
-          <div className="bg-white p-6 border border-slate-200 rounded-3xl shadow-sm space-y-6">
+          <div className="bg-[#FAF8F3] p-6 border border-slate-200 rounded-3xl shadow-sm space-y-6">
             <h4 className="text-[11px] font-black text-slate-900 uppercase tracking-widest flex items-center gap-2 pb-3 border-b border-slate-100">
               <Zap size={14} className="text-yellow-500 animate-bounce" />
               AI Simulation settings
@@ -890,7 +930,7 @@ export const NewClaim: React.FC = () => {
                     type="button"
                     onClick={() => setUserGradeTrust(lvl)}
                     className={`py-1.5 rounded-lg text-[9px] font-black uppercase tracking-wider transition-all cursor-pointer ${
-                      userGradeTrust === lvl ? 'bg-primary text-white' : 'text-slate-500 hover:bg-slate-150'
+                      userGradeTrust === lvl ? 'bg-primary text-[#FAF8F3]' : 'text-slate-500 hover:bg-slate-150'
                     }`}
                   >
                     {lvl}
@@ -980,9 +1020,9 @@ export const NewClaim: React.FC = () => {
               exit={{ opacity: 0 }}
               className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md"
             >
-              <div className="bg-white rounded-3xl p-8 max-w-lg w-full mx-4 shadow-2xl border border-slate-100 space-y-6">
+              <div className="bg-[#FAF8F3] rounded-3xl p-8 max-w-lg w-full mx-4 shadow-2xl border border-slate-100 space-y-6">
                 <div className="flex items-center gap-3 pb-4 border-b border-slate-100">
-                  <div className="p-2.5 bg-black text-white rounded-xl">
+                  <div className="p-2.5 bg-[#1E3A5F] text-[#FAF8F3] rounded-xl">
                     <Activity size={18} className="animate-pulse" />
                   </div>
                   <div>
@@ -1047,7 +1087,7 @@ export const NewClaim: React.FC = () => {
         <AnimatePresence>
           {duplicateWarning && duplicateWarning.show && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
-              <div className="bg-white rounded-3xl p-6 max-w-md w-full mx-4 shadow-2xl border border-slate-100 space-y-4">
+              <div className="bg-[#FAF8F3] rounded-3xl p-6 max-w-md w-full mx-4 shadow-2xl border border-slate-100 space-y-4">
                 <div className="flex items-start gap-3">
                   <div className="p-2.5 bg-rose-50 text-rose-600 rounded-xl">
                     <AlertTriangle size={24} />
@@ -1077,7 +1117,7 @@ export const NewClaim: React.FC = () => {
                       }
                       setDuplicateWarning(null);
                     }}
-                    className="flex-1 py-3 bg-rose-600 text-white rounded-xl text-xs font-black uppercase tracking-widest hover:bg-rose-700 transition-colors"
+                    className="flex-1 py-3 bg-rose-600 text-[#FAF8F3] rounded-xl text-xs font-black uppercase tracking-widest hover:bg-rose-700 transition-colors"
                   >
                     [ Remove Line ]
                   </button>
@@ -1102,7 +1142,7 @@ export const NewClaim: React.FC = () => {
             <motion.div 
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
-              className="fixed inset-0 z-50 flex items-center justify-center bg-white/95 backdrop-blur-sm"
+              className="fixed inset-0 z-50 flex items-center justify-center bg-[#FAF8F3]/95 backdrop-blur-sm"
             >
               <motion.div 
                 initial={{ scale: 0.9, y: 20 }}
@@ -1131,9 +1171,9 @@ export const NewClaim: React.FC = () => {
 };
 
 const StepItem = ({ active, done, num, label }: { active: boolean, done?: boolean, num: number, label: string }) => (
-  <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all ${active ? 'bg-white shadow-md' : ''}`}>
+  <div className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all ${active ? 'bg-[#FAF8F3] shadow-md' : ''}`}>
     <div className={`w-6 h-6 rounded-lg flex items-center justify-center text-xs font-bold ${
-      done ? 'bg-accent text-white' : active ? 'bg-accent text-white' : 'bg-slate-200 text-slate-500'
+      done ? 'bg-accent text-[#FAF8F3]' : active ? 'bg-accent text-[#FAF8F3]' : 'bg-slate-200 text-slate-500'
     }`}>
       {done ? <CheckCircle2 size={14} /> : num}
     </div>
@@ -1150,7 +1190,7 @@ const ReviewRow = ({ label, value }: { label: string, value: string }) => (
 
 const ApprovalStep = ({ name, role, status }: { name: string, role: string, status: 'pending' | 'waiting' }) => (
   <div className="flex items-center gap-3 relative">
-    <div className={`w-3.5 h-3.5 rounded-full border-2 ${status === 'pending' ? 'bg-white border-black ring-4 ring-slate-100' : 'bg-slate-200 border-white'}`} />
+    <div className={`w-3.5 h-3.5 rounded-full border-2 ${status === 'pending' ? 'bg-[#FAF8F3] border-[#1E3A5F] ring-4 ring-slate-100' : 'bg-slate-200 border-[#FAF8F3]'}`} />
     <div>
       <p className="text-xs font-bold text-slate-900">{name}</p>
       <p className="text-[9px] text-slate-500 font-bold uppercase tracking-wider">{role}</p>
@@ -1175,15 +1215,15 @@ const LiveCheck = ({ label, status, desc }: { label: string; status: 'pass' | 'w
 const RoutingPipelineStep = ({ title, active, completed, icon: Icon }: any) => {
   return (
     <div className={`flex items-center justify-between p-4 rounded-2xl border transition-all ${
-      active ? 'bg-primary text-white border-primary scale-[1.02] shadow-lg shadow-primary/15' :
-      completed ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-white text-slate-300 border-slate-100'
+      active ? 'bg-primary text-[#FAF8F3] border-primary scale-[1.02] shadow-lg shadow-primary/15' :
+      completed ? 'bg-slate-50 text-slate-500 border-slate-100' : 'bg-[#FAF8F3] text-slate-300 border-slate-100'
     }`}>
       <div className="flex items-center gap-3">
-        <Icon size={16} className={active ? 'text-white' : completed ? 'text-emerald-500' : 'text-slate-300'} />
+        <Icon size={16} className={active ? 'text-[#FAF8F3]' : completed ? 'text-emerald-500' : 'text-slate-300'} />
         <span className="text-[10px] font-black uppercase tracking-wider">{title}</span>
       </div>
       {completed && <CheckCircle2 size={16} className="text-emerald-500 shrink-0" />}
-      {active && <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin shrink-0" />}
+      {active && <div className="w-4 h-4 border-2 border-[#FAF8F3]/20 border-t-white rounded-full animate-spin shrink-0" />}
     </div>
   );
 };
