@@ -13,7 +13,17 @@ import google.generativeai as genai
 from google.api_core import exceptions as google_exceptions
 import fitz  # PyMuPDF
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="OCR Document Processing Sidecar")
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 @app.get("/health")
@@ -160,6 +170,7 @@ def _gemini_extract_from_image(image_bytes: bytes, mime_type: str) -> dict[str, 
         raise HTTPException(status_code=502, detail=f"Gemini API error: {e}") from e
 
     text = _strip_code_fences(getattr(resp, "text", "") or "")
+    
     try:
         data = json.loads(text)
     except Exception as e:

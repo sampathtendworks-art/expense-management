@@ -332,7 +332,7 @@ export const Reports: React.FC = () => {
             </h3>
             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Monthly aggregate</p>
           </div>
-          <div className="h-64 w-full">
+          <div className="w-full min-h-[300px]">
             <ResponsiveContainer width="100%" height="100%">
               <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
@@ -371,7 +371,7 @@ export const Reports: React.FC = () => {
             </h3>
             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Approved spend allocation</p>
           </div>
-          <div className="h-64 w-full">
+          <div className="w-full min-h-[300px]">
             {categoryData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={categoryData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
@@ -407,7 +407,7 @@ export const Reports: React.FC = () => {
             </h3>
             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Band breakdown across all claims</p>
           </div>
-          <div className="h-64 w-full">
+          <div className="w-full min-h-[300px]">
             {claims.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={trustDistData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -447,7 +447,7 @@ export const Reports: React.FC = () => {
             </h3>
             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Fast-Track vs Manager vs Finance</p>
           </div>
-          <div className="h-64 w-full">
+          <div className="w-full min-h-[300px]">
             {claims.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>

@@ -133,7 +133,7 @@ export const Dashboard: React.FC = () => {
             </h3>
             <p className="text-[10px] uppercase font-black text-slate-500 mt-1">Real-time category spending ledger</p>
           </div>
-          <div className="h-64 w-full">
+          <div className="w-full min-h-[300px]">
             {categoryData.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart data={categoryData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>

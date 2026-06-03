@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useClaims, type Claim } from '../context/ClaimsContext';
 import { 
@@ -15,7 +15,9 @@ import {
   Activity,
   ShieldCheck,
   UserCheck,
-  FileCheck
+  FileCheck,
+  X,
+  Loader2
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -57,7 +59,11 @@ export const NewClaim: React.FC = () => {
   // --- PRD Specific State (AI OCR / Bank Statement Uploads) ---
   const [receiptFile, setReceiptFile] = useState<string | null>(null);
   const [bankStatementFile, setBankStatementFile] = useState<string | null>(null);
-  const [aiOcrStatus, setAiOcrStatus] = useState<'idle' | 'processing' | 'ready' | 'autofilled'>('idle');
+  const [aiOcrStatus, setAiOcrStatus] = useState<'idle' | 'processing' | 'autofilled' | 'error'>('idle');
+  const [ocrError, setOcrError] = useState<string | null>(null);
+  const [ocrConfidence, setOcrConfidence] = useState<number | null>(null);
+  const receiptInputRef = useRef<HTMLInputElement>(null);
+
   const [reconciliationMismatch, setReconciliationMismatch] = useState<boolean>(false);
   const [userGradeTrust, setUserGradeTrust] = useState<'high' | 'normal' | 'low'>('normal');
   const [ocrTamperingDetected, setOcrTamperingDetected] = useState<boolean>(false);
@@ -76,18 +82,6 @@ export const NewClaim: React.FC = () => {
   const [routingStep, setRoutingStep] = useState<number>(0);
   const [routingPathResult, setRoutingPathResult] = useState<'pathA' | 'pathB' | 'pathC' | null>(null);
 
-  // Mock parsed OCR values ready to fill
-  const ocrMockData = {
-    title: 'Q4 Product Sync - Bangalore Offsite',
-    category: 'Travel Expenses',
-    projectCode: 'PRJ-2024-009',
-    startDate: '2024-10-18',
-    endDate: '2024-10-20',
-    itemAmount: '8500',
-    itemTax: '1530',
-    itemDesc: 'Indigo Ticket: DEL -> BLR'
-  };
-
   const calculateTotal = () => {
     const total = items.reduce((sum, item) => 
       sum + (parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0), 0
@@ -95,55 +89,96 @@ export const NewClaim: React.FC = () => {
     return total.toLocaleString('en-IN');
   };
 
-  // Launches camera/file picker simulation for Receipt
-  const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Clears the selected receipt file and resets all OCR-derived state
+  const clearReceiptFile = () => {
+    setReceiptFile(null);
+    setAiOcrStatus('idle');
+    setOcrError(null);
+    setOcrConfidence(null);
+    setOcrTamperingDetected(false);
+    // Reset form fields that were auto-filled
+    setClaimTitle('');
+    setTripStartDate('');
+    setTripEndDate('');
+    setItems([
+      { id: Date.now(), date: new Date().toISOString().split('T')[0], category: 'Travel Expenses', amount: '', tax: '', desc: '', billable: false }
+    ]);
+    // Reset the file input so the same file can be re-selected
+    if (receiptInputRef.current) receiptInputRef.current.value = '';
+  };
+
+  // Uploads receipt to the real OCR API and auto-fills form from the response
+  const handleReceiptUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setReceiptFile(file.name);
-      triggerAiParsing(file.name, 'Receipt');
+    if (!file) return;
+
+    setReceiptFile(file.name);
+    setAiOcrStatus('processing');
+    setOcrError(null);
+    setOcrConfidence(null);
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const response = await fetch('http://localhost:8001/api/v1/ocr/parse', {
+        method: 'POST',
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => ({}));
+        throw new Error((errorBody as { detail?: string })?.detail || `Server error: ${response.status}`);
+      }
+
+      const result = await response.json();
+
+      if (result.status !== 'success' || !result.extracted_data) {
+        throw new Error('OCR service returned an unexpected response.');
+      }
+
+      const d = result.extracted_data;
+
+      // Persist tampering and confidence flags
+      setOcrTamperingDetected(!!d.tampering_detected);
+      setOcrConfidence(d.ocr_confidence ?? null);
+
+      // Auto-fill the form — all fields remain fully editable by the user
+      if (d.merchant_name) setClaimTitle(`Receipt – ${d.merchant_name}`);
+      if (d.expense_date) {
+        setTripStartDate(d.expense_date);
+        setTripEndDate(d.expense_date);
+      }
+
+      // Map the primary line item from OCR data
+      setItems([
+        {
+          id: Date.now(),
+          date: d.expense_date || new Date().toISOString().split('T')[0],
+          category: reportCategory,
+          amount: d.total_amount != null ? String(d.total_amount) : '',
+          tax: d.tax_amount != null ? String(d.tax_amount) : '0',
+          desc: d.merchant_name ? `Purchase at ${d.merchant_name}` : '',
+          billable: true,
+          ocrValue: d.total_amount != null ? String(d.total_amount) : undefined,
+          ocrConfirmed: true,
+        }
+      ]);
+
+      setAiOcrStatus('autofilled');
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Unknown error during OCR processing.';
+      setOcrError(message);
+      setAiOcrStatus('error');
     }
   };
 
-  // Launches bulk upload simulation for Bank Statement
+  // Launches bulk upload for Bank Statement
   const handleBankStatementUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setBankStatementFile(file.name);
-      triggerAiParsing(file.name, 'Bank Statement');
     }
-  };
-
-  // Simulation of background system parsing
-  const triggerAiParsing = (_filename: string, _type: 'Receipt' | 'Bank Statement') => {
-    setAiOcrStatus('processing');
-    setTimeout(() => {
-      setAiOcrStatus('ready');
-    }, 1500);
-  };
-
-  // Auto-fill logic from the AI OCR parsed data
-  const handleAutoFill = () => {
-    setAiOcrStatus('autofilled');
-    setClaimTitle(ocrMockData.title);
-    setReportCategory(ocrMockData.category);
-    setProjectCode(ocrMockData.projectCode);
-    setTripStartDate(ocrMockData.startDate);
-    setTripEndDate(ocrMockData.endDate);
-
-    // Populate line item with OCR reference value for checking overrides later
-    setItems([
-      {
-        id: Date.now(),
-        date: ocrMockData.startDate,
-        category: ocrMockData.category,
-        amount: ocrMockData.itemAmount,
-        tax: ocrMockData.itemTax,
-        desc: ocrMockData.itemDesc,
-        billable: true,
-        ocrValue: ocrMockData.itemAmount,
-        ocrConfirmed: true
-      }
-    ]);
   };
 
   // Evaluates risk categories to determine the pipeline routing path
@@ -275,7 +310,7 @@ export const NewClaim: React.FC = () => {
       hasBankStatementMismatch: reconciliationMismatch,
       outsideHours: outsideBusinessHours,
       isFastTrackEligible: calculatedPath === 'pathA',
-      ocrConfidence: receiptFile ? 0.94 : undefined,
+      ocrConfidence: receiptFile && ocrConfidence !== null ? ocrConfidence : undefined,
       tamperingDetected: ocrTamperingDetected,
       bankStatementReconciled: !bankStatementFile ? 'Unverified' : (reconciliationMismatch ? 'Mismatch' : 'Verified'),
       anomalyFlagsCount: (calculatedPath === 'pathC' ? 1 : 0) + (reconciliationMismatch ? 1 : 0) + (ocrTamperingDetected ? 1 : 0),
@@ -521,26 +556,40 @@ export const NewClaim: React.FC = () => {
                         </div>
                         <div className="mt-4">
                           <input 
+                            ref={receiptInputRef}
                             id="receipt-file-picker" 
                             type="file" 
                             accept="image/*,application/pdf" 
                             className="hidden" 
                             onChange={handleReceiptUpload}
+                            disabled={aiOcrStatus === 'processing'}
                           />
-                          <button 
-                            type="button"
-                            onClick={() => document.getElementById('receipt-file-picker')?.click()}
-                            className="w-full bg-white border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
-                          >
-                            [ Upload Receipt ]
-                          </button>
+                          {!receiptFile ? (
+                            <button 
+                              type="button"
+                              onClick={() => receiptInputRef.current?.click()}
+                              className="w-full bg-white border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
+                            >
+                              [ Upload Receipt ]
+                            </button>
+                          ) : (
+                            <div className="mt-2 flex items-center gap-2">
+                              <div className="flex-1 text-[10px] text-slate-700 font-black bg-white border border-slate-200 p-2.5 rounded-xl flex items-center gap-1.5 min-w-0">
+                                <Paperclip size={12} className="text-slate-400 shrink-0" />
+                                <span className="truncate">{receiptFile}</span>
+                              </div>
+                              <button
+                                type="button"
+                                onClick={clearReceiptFile}
+                                title="Remove file"
+                                disabled={aiOcrStatus === 'processing'}
+                                className="p-2 rounded-xl bg-rose-50 border border-rose-100 text-rose-500 hover:bg-rose-100 hover:text-rose-700 transition-all shrink-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <X size={14} />
+                              </button>
+                            </div>
+                          )}
                         </div>
-                        {receiptFile && (
-                          <div className="mt-2 text-[10px] text-slate-650 font-black bg-white border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
-                            <Paperclip size={12} className="text-slate-400 shrink-0" />
-                            {receiptFile}
-                          </div>
-                        )}
                       </div>
 
                       {/* Upload Bank Statement */}
@@ -574,55 +623,98 @@ export const NewClaim: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* AI OCR background status & Auto-fill */}
-                    {aiOcrStatus !== 'idle' && (
-                      <div className="p-5 bg-slate-900 text-white rounded-2xl space-y-3 shadow-xl">
-                        <div className="flex items-center justify-between">
-                          <p className="text-xs font-black uppercase tracking-widest flex items-center gap-2 text-yellow-400">
-                            <Zap size={14} className="animate-pulse" />
-                            AI OCR Smart Auto-Fill
-                          </p>
-                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
-                            aiOcrStatus === 'processing' ? 'bg-amber-500/20 text-amber-300 animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
-                          }`}>
-                            {aiOcrStatus === 'processing' ? 'Analyzing file...' : 'Analysis Ready'}
-                          </span>
-                        </div>
-
-                        {aiOcrStatus === 'processing' && (
-                          <div className="space-y-2">
-                            <p className="text-[11px] text-slate-400 font-medium">Reading merchant name, date, total amount, taxes, and transaction details...</p>
-                            <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
-                              <motion.div 
-                                className="bg-white h-full" 
-                                initial={{ width: 0 }} 
-                                animate={{ width: '100%' }} 
-                                transition={{ duration: 1.5 }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {aiOcrStatus !== 'processing' && (
+                    {/* AI OCR Live Status Panel */}
+                    <AnimatePresence>
+                      {aiOcrStatus !== 'idle' && (
+                        <motion.div
+                          key="ocr-panel"
+                          initial={{ opacity: 0, y: -8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -8 }}
+                          transition={{ duration: 0.25 }}
+                          className={`p-5 rounded-2xl space-y-3 shadow-xl ${
+                            aiOcrStatus === 'error' ? 'bg-rose-950 text-white' : 'bg-slate-900 text-white'
+                          }`}
+                        >
                           <div className="flex items-center justify-between">
-                            <div className="text-[11px] text-slate-350 space-y-0.5 font-semibold">
-                              <p>📌 <span className="font-black text-white">Merchant:</span> Indigo Cabs / Airlines</p>
-                              <p>💰 <span className="font-black text-white">Scanned Total:</span> ₹8,500.00 (Tax ₹1,530.00)</p>
-                              <p>📅 <span className="font-black text-white">Scanned Date:</span> 2024-10-18</p>
-                            </div>
-                            {aiOcrStatus === 'ready' && (
-                              <button 
-                                type="button"
-                                onClick={handleAutoFill}
-                                className="bg-white text-slate-900 px-5 py-2.5 rounded-xl text-xs font-black hover:bg-slate-100 transition-all uppercase tracking-widest cursor-pointer"
-                              >
-                                [ Auto-Fill ]
-                              </button>
-                            )}
+                            <p className={`text-xs font-black uppercase tracking-widest flex items-center gap-2 ${
+                              aiOcrStatus === 'error' ? 'text-rose-400' : 'text-yellow-400'
+                            }`}>
+                              {aiOcrStatus === 'processing' ? (
+                                <Loader2 size={14} className="animate-spin" />
+                              ) : (
+                                <Zap size={14} />
+                              )}
+                              AI OCR Smart Auto-Fill
+                            </p>
+                            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                              aiOcrStatus === 'processing' ? 'bg-amber-500/20 text-amber-300 animate-pulse' :
+                              aiOcrStatus === 'error'     ? 'bg-rose-500/30 text-rose-300' :
+                                                           'bg-emerald-500/20 text-emerald-300'
+                            }`}>
+                              {aiOcrStatus === 'processing' ? 'Extracting receipt data...' :
+                               aiOcrStatus === 'error'     ? 'Extraction failed' :
+                                                            'Fields auto-filled ✓'}
+                            </span>
                           </div>
-                        )}
-                      </div>
-                    )}
+
+                          {/* Loading state */}
+                          {aiOcrStatus === 'processing' && (
+                            <div className="space-y-2">
+                              <p className="text-[11px] text-slate-400 font-medium">Reading merchant name, date, total amount, taxes, and transaction details...</p>
+                              <div className="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                <motion.div 
+                                  className="bg-white h-full" 
+                                  initial={{ width: 0 }} 
+                                  animate={{ width: '100%' }} 
+                                  transition={{ duration: 3, ease: 'easeInOut' }}
+                                />
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Error state */}
+                          {aiOcrStatus === 'error' && ocrError && (
+                            <div className="flex items-start gap-2">
+                              <AlertTriangle size={14} className="text-rose-400 mt-0.5 shrink-0" />
+                              <div className="space-y-1">
+                                <p className="text-[11px] text-rose-300 font-semibold">{ocrError}</p>
+                                <p className="text-[10px] text-rose-400/70 font-medium">You can still fill in the form manually, or remove the file and try again.</p>
+                              </div>
+                            </div>
+                          )}
+
+                          {/* Success / Auto-filled state */}
+                          {aiOcrStatus === 'autofilled' && (
+                            <div className="space-y-2">
+                              <p className="text-[11px] text-slate-300 font-medium">Form fields have been pre-filled from the receipt. Review and edit any values before submitting.</p>
+                              {ocrConfidence !== null && (
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 bg-slate-800 rounded-full h-1.5 overflow-hidden">
+                                    <div
+                                      className={`h-full rounded-full ${
+                                        ocrConfidence >= 0.8 ? 'bg-emerald-400' :
+                                        ocrConfidence >= 0.5 ? 'bg-amber-400' : 'bg-rose-400'
+                                      }`}
+                                      style={{ width: `${Math.round(ocrConfidence * 100)}%` }}
+                                    />
+                                  </div>
+                                  <span className="text-[10px] font-black text-slate-400 shrink-0">
+                                    {Math.round(ocrConfidence * 100)}% confidence
+                                  </span>
+                                </div>
+                              )}
+                              {ocrTamperingDetected && (
+                                <div className="flex items-center gap-1.5 p-2 bg-rose-500/15 rounded-xl">
+                                  <AlertTriangle size={12} className="text-rose-400 shrink-0" />
+                                  <p className="text-[10px] font-bold text-rose-300">Tampering signal detected in this receipt image.</p>
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
               </motion.div>
