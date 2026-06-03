@@ -28,21 +28,17 @@ export const Finance: React.FC = () => {
     rejectClaimWithReason
   } = useClaims();
   
-  // UI State
   const [activeTab, setActiveTab] = useState<'approved' | 'flagged'>('approved');
   const [selectedClaim, setSelectedClaim] = useState<Claim | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // Batch selection states
   const [selectedApprovedIds, setSelectedApprovedIds] = useState<string[]>([]);
   
-  // Modal states
   const [syncingBatch, setSyncingBatch] = useState<PayoutBatch | null>(null);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'transmitting' | 'success'>('idle');
   const [syncResponse, setSyncResponse] = useState<{ docNum: string; payload: any } | null>(null);
 
-  // Fraud rejection comment modal state
   const [fraudActionModal, setFraudActionModal] = useState<{
     show: boolean;
     claimId?: string;
@@ -52,7 +48,6 @@ export const Finance: React.FC = () => {
     commentText: ''
   });
 
-  // --- Filtering Logic ---
   const approvedClaims = claims.filter(claim => 
     claim.status === 'approved' &&
     (claim.title.toLowerCase().includes(searchQuery.toLowerCase()) || 
@@ -65,7 +60,6 @@ export const Finance: React.FC = () => {
      claim.id.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  // --- Handlers ---
   const handleOpenClaim = (claim: Claim) => {
     setSelectedClaim(claim);
     setIsDrawerOpen(true);
@@ -88,8 +82,6 @@ export const Finance: React.FC = () => {
   const handleCreateBatch = () => {
     if (selectedApprovedIds.length === 0) return;
     const newBatchId = createPayoutBatch(selectedApprovedIds);
-    // Automatically update claims inside this batch to "batched" by changing statuses to "paid" during markBatchAsDisbursed later, 
-    // but for now, they are batched so we clear selected ids
     setSelectedApprovedIds([]);
     alert(`Created payout ledger batch ${newBatchId} containing ${selectedApprovedIds.length} claims.`);
   };
@@ -114,7 +106,6 @@ export const Finance: React.FC = () => {
     }
   };
 
-  // Force approve flagged items
   const handleForceApproveFlagged = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     if (window.confirm('Override AI warnings and approve this flagged claim for payment routing?')) {
@@ -122,7 +113,6 @@ export const Finance: React.FC = () => {
     }
   };
 
-  // Reject flagged items
   const openFraudRejectModal = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setFraudActionModal({
@@ -141,15 +131,12 @@ export const Finance: React.FC = () => {
     }
   };
 
-  // Calculate selected total
   const selectedApprovedTotal = claims
     .filter(c => selectedApprovedIds.includes(c.id))
     .reduce((sum, c) => sum + parseFloat(c.totalAmount.replace(/[₹,]/g, '')), 0);
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-20">
-      
-      {/* Header Section */}
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Finance Center</h2>
@@ -170,8 +157,6 @@ export const Finance: React.FC = () => {
           </button>
         </div>
       </div>
-
-      {/* Quick Metrics Grid */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
         <StatSmall label="Verified Approved" value={claims.filter(c => c.status === 'approved').length.toString()} color="emerald" icon={<CheckCircle2 size={16} />} />
         <StatSmall label="AI Flagged Queue" value={claims.filter(c => c.status === 'flagged').length.toString()} color="rose" icon={<AlertTriangle size={16} />} />
@@ -179,7 +164,6 @@ export const Finance: React.FC = () => {
         <StatSmall label="Total Disbursements" value={`₹${batches.filter(b => b.status === 'Paid').reduce((sum, b) => sum + parseFloat(b.amount.replace(/[₹,]/g, '')), 0).toLocaleString('en-IN')}`} color="slate" icon={<CreditCard size={16} />} />
       </div>
 
-      {/* Tab Switcher */}
       <div className="flex items-center gap-4 border-b border-slate-200">
         <button
           onClick={() => setActiveTab('approved')}
@@ -202,9 +186,7 @@ export const Finance: React.FC = () => {
           <Cpu size={16} className={flaggedClaims.length > 0 ? 'animate-pulse text-rose-500' : ''} />
           Review AI-Flagged Claims ({flaggedClaims.length})
         </button>
-      </div>
-
-      {/* Main Data Queue */}
+      </div> 
       <div className="premium-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
           <div className="flex items-center gap-6 flex-1">
@@ -225,7 +207,6 @@ export const Finance: React.FC = () => {
         </div>
 
         {activeTab === 'approved' ? (
-          /* APPROVED QUEUE */
           <>
             <table className="w-full border-collapse">
               <thead>
@@ -239,7 +220,7 @@ export const Finance: React.FC = () => {
                     />
                   </th>
                   <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Claim Details</th>
-                  <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Cost Center</th>
+                  <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Invoice ID</th>
                   <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Amount</th>
                   <th className="px-6 py-5 text-[10px] font-black text-slate-400 uppercase tracking-widest">Approval Date</th>
                   <th className="px-6 py-5 text-right text-[10px] font-black text-slate-400 uppercase tracking-widest">Details</th>
@@ -309,8 +290,7 @@ export const Finance: React.FC = () => {
               </div>
             )}
           </>
-        ) : (
-          /* AI-FLAGGED FRAUD QUEUE */
+        ) : ( 
           <>
             <table className="w-full border-collapse">
               <thead>
@@ -399,9 +379,7 @@ export const Finance: React.FC = () => {
             )}
           </>
         )}
-      </div>
-
-      {/* Payout Batches Ledger */}
+      </div> {/* Closing div for premium-card */}
       <div className="space-y-4">
         <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest px-1">Ledger: disbursement Payout batches</h4>
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
@@ -464,8 +442,6 @@ export const Finance: React.FC = () => {
           ))}
         </div>
       </div>
-
-      {/* ERP Sync Webhook Simulator Dialog */}
       <AnimatePresence>
         {syncingBatch && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 backdrop-blur-md">
@@ -486,7 +462,6 @@ export const Finance: React.FC = () => {
               </div>
 
               {/* Webhook API JSON payload Display */}
-              <div className="space-y-2">
                 <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">Outgoing API Request payload (JSON)</label>
                 <div className="bg-slate-900 text-slate-300 p-4 rounded-2xl text-[10px] font-mono leading-relaxed overflow-x-auto shadow-inner border border-slate-800">
                   <pre>{JSON.stringify({
@@ -505,10 +480,8 @@ export const Finance: React.FC = () => {
                       }))
                   }, null, 2)}</pre>
                 </div>
-              </div>
 
               {/* Status display */}
-              <div className="space-y-4">
                 {syncStatus === 'idle' && (
                   <div className="bg-slate-50 border border-slate-200 p-4 rounded-2xl text-xs text-slate-650 font-bold leading-relaxed">
                     💡 This ledger will dispatch Cost Center debits, transaction metadata, and attachments references to target accounting interfaces. Ready to execute webhook transmission?
@@ -535,8 +508,6 @@ export const Finance: React.FC = () => {
                     </div>
                   </div>
                 )}
-              </div>
-
               {/* Footer */}
               <div className="flex gap-3 pt-4 border-t border-slate-100">
                 <button 
@@ -560,7 +531,6 @@ export const Finance: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Fraud Rejection comments Modal */}
       <AnimatePresence>
         {fraudActionModal.show && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 backdrop-blur-sm">
@@ -613,7 +583,6 @@ export const Finance: React.FC = () => {
         )}
       </AnimatePresence>
 
-      {/* Detailed Audit Drawer */}
       <ClaimDetailDrawer 
         isOpen={isDrawerOpen} 
         onClose={() => setIsDrawerOpen(false)} 
@@ -622,8 +591,6 @@ export const Finance: React.FC = () => {
     </div>
   );
 };
-
-// --- Subcomponents ---
 
 const StatSmall = ({ label, value, color, icon }: any) => (
   <div className="bg-white p-6 border border-slate-100 rounded-3xl shadow-sm space-y-4">

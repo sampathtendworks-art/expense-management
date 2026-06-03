@@ -171,7 +171,7 @@ export const Reports: React.FC = () => {
   const displayedClaims = showAllRows ? claims : claims.slice(0, 10);
 
   return (
-    <div className="space-y-10 max-w-7xl mx-auto pb-24">
+    <div className="space-y-8 max-w-7xl mx-auto pb-20">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black text-primary tracking-tight uppercase">
@@ -189,7 +189,6 @@ export const Reports: React.FC = () => {
           Export Full Audit Ledger
         </button>
       </div>
-      <div>
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-1.5">
           <TrendingUp size={12} /> Spend Overview
         </p>
@@ -224,7 +223,6 @@ export const Reports: React.FC = () => {
             icon={<Clock size={16} />}
           />
         </div>
-      </div>
       <div>
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-1.5">
           <Brain size={12} /> AI Intelligence Summary
@@ -300,7 +298,6 @@ export const Reports: React.FC = () => {
           </div>
         </div>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-[#FAF8F3] p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
           <div>
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -309,7 +306,7 @@ export const Reports: React.FC = () => {
             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Monthly aggregate</p>
           </div>
           <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
               <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                 <defs>
                   <linearGradient id="colorAmt" x1="0" y1="0" x2="0" y2="1">
@@ -368,7 +365,6 @@ export const Reports: React.FC = () => {
             )}
           </div>
         </div>
-      </div>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
         <div className="bg-[#FAF8F3] p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
           <div>
@@ -607,7 +603,6 @@ export const Reports: React.FC = () => {
           </div>
         )}
       </div>
-
     </div>
   );
 };

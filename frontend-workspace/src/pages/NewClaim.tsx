@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Plus,
   Trash2,
+  Eye,
   CheckCircle2,
   FileText,
   ArrowRight,
@@ -15,12 +16,14 @@ import {
   Activity,
   ShieldCheck,
   UserCheck,
-  FileCheck
-} from 'lucide-react';
+  FileCheck,
+  Loader2
+} from 'lucide-react'; 
 import { motion, AnimatePresence } from 'framer-motion';
 
 // --- Types & Step Definitions ---
 type Step = 'details' | 'items' | 'review';
+type ClaimType = 'single' | 'multiline';
 
 interface ItemEntry {
   id: number;
@@ -30,19 +33,27 @@ interface ItemEntry {
   tax: string;
   desc: string;
   billable: boolean;
-  ocrValue?: string; // Original OCR scanned value if populated
+  currency: string;       // INR / USD / EUR / GBP / AED
+  paymentMode: string;    // Cash / Personal Card / Company Card / UPI
+  projectCode: string;    // Per-line project/cost-center
+  merchantName: string;   // Merchant name for this line
+  receiptFile?: string;   // Per-line receipt filename
+  receiptUrl?: string;    // Per-line receipt preview URL
+  bankFile?: string;      // Per-line bank statement filename
+  bankUrl?: string;       // Per-line bank statement preview URL
+  ocrValue?: string;
   ocrConfirmed?: boolean;
+  ocrStatus?: 'idle' | 'processing' | 'ready' | 'error';
 }
 
-const OCR_SIDECAR_URL = 'http://localhost:8001/api/v1/ocr/parse';
-const AI_SIDECAR_URL = 'http://localhost:8002/api/v1/evaluate-claim';
-
+const OCR_SIDECAR_URL = '/ocr-api/api/v1/ocr/parse';
+const AI_SIDECAR_URL = '/ai-api/api/v1/evaluate-claim';
 export const NewClaim: React.FC = () => {
   const navigate = useNavigate();
-  const { addClaim, policies, claims, userTrustScore } = useClaims();
+  const { addClaim, policies, claims, userTrustScore, categories, currentRole } = useClaims();
 
   // --- Step & Lifecycle State ---
-  const [currentStep, setCurrentStep] = useState<Step>('details');
+  const [currentStep, setCurrentStep] = useState<Step>('details'); 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
 
@@ -53,21 +64,35 @@ export const NewClaim: React.FC = () => {
   const [tripStartDate, setTripStartDate] = useState('');
   const [tripEndDate, setTripEndDate] = useState('');
 
+  const [claimType, setClaimType] = useState<ClaimType | null>(null);
+
   const [items, setItems] = useState<ItemEntry[]>([
-    { id: 1, date: new Date().toISOString().split('T')[0], category: 'Travel Expenses', amount: '', tax: '', desc: '', billable: false }
+    {
+      id: 1,
+      date: new Date().toISOString().split('T')[0],
+      category: 'Local Travel',
+      amount: '', tax: '', desc: '',
+      billable: false,
+      currency: 'INR',
+      paymentMode: 'Personal Card',
+      projectCode: '',
+      merchantName: '',
+    }
   ]);
-  const [livePolicyResult, setLivePolicyResult] = useState<any>(null);
+  const [_livePolicyResult, setLivePolicyResult] = useState<any>(null);
 
   // --- PRD Specific State (AI OCR / Bank Statement Uploads) ---
   const [receiptFile, setReceiptFile] = useState<string | null>(null);
+  const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [bankStatementFile, setBankStatementFile] = useState<string | null>(null);
+  const [bankUrl, setBankUrl] = useState<string | null>(null);
   const [aiOcrStatus, setAiOcrStatus] = useState<'idle' | 'processing' | 'ready' | 'autofilled'>('idle');
   const [reconciliationMismatch, setReconciliationMismatch] = useState<boolean>(false);
   const [userGradeTrust, setUserGradeTrust] = useState<'high' | 'normal' | 'low'>('normal');
   const [ocrTamperingDetected, setOcrTamperingDetected] = useState<boolean>(false);
   const [outsideBusinessHours, setOutsideBusinessHours] = useState<boolean>(false);
+  const [ocrData, setOcrData] = useState<any>(null);
 
-  // --- Duplicate & Anomaly Warning Modal State ---
   const [duplicateWarning, setDuplicateWarning] = useState<{
     show: boolean;
     duplicateClaimId?: string;
@@ -76,21 +101,40 @@ export const NewClaim: React.FC = () => {
     date?: string;
   } | null>(null);
 
-  // --- Routing Pipeline Execution state ---
   const [routingStep, setRoutingStep] = useState<number>(0);
   const [routingPathResult, setRoutingPathResult] = useState<'pathA' | 'pathB' | 'pathC' | null>(null);
 
-  // Mock parsed OCR values ready to fill
-  const ocrMockData = {
-    title: 'Q4 Product Sync - Bangalore Offsite',
-    category: 'Travel Expenses',
-    projectCode: 'PRJ-2024-009',
-    startDate: '2024-10-18',
-    endDate: '2024-10-20',
-    itemAmount: '8500',
-    itemTax: '1530',
-    itemDesc: 'Indigo Ticket: DEL -> BLR'
+
+  const isStepValid = () => {
+    if (currentStep === 'details') {
+      return (
+        claimTitle.trim() !== '' &&
+        reportCategory.trim() !== '' &&
+        projectCode.trim() !== '' &&
+        receiptFile !== null &&
+        bankStatementFile !== null
+      );
+    }
+    if (currentStep === 'items') {
+      const itemsValid = items.every(
+        (item) =>
+          item.amount.trim() !== '' &&
+          item.tax.trim() !== '' &&
+          item.merchantName.trim() !== ''
+      );
+
+      const filesValid = items.every(
+        (item) => item.receiptFile && item.bankFile
+      );
+
+      if (claimType === 'multiline') {
+        return itemsValid && filesValid && claimTitle.trim() !== '' && projectCode.trim() !== '';
+      }
+      return itemsValid && filesValid;
+    }
+    return true;
   };
+
   const calculateTotal = () => {
     const total = items.reduce((sum, item) =>
       sum + (parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0), 0
@@ -98,20 +142,43 @@ export const NewClaim: React.FC = () => {
     return total.toLocaleString('en-IN');
   };
 
-  // Launches camera/file picker simulation for Receipt
-  const handleReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleItemBankUpload = (e: React.ChangeEvent<HTMLInputElement>, idx: number) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setItems(prev => prev.map((item, i) => i === idx ? {
+        ...item,
+        bankFile: file.name,
+        bankUrl: URL.createObjectURL(file)
+      } : item));
+    }
+  };
+
+  const handleItemReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>, idx: number) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      setItems(prev => prev.map((item, i) => i === idx ? {
+        ...item,
+        receiptFile: file.name,
+        receiptUrl: URL.createObjectURL(file)
+      } : item));
+      triggerLineItemOcr(file, idx);
+    }
+  };
+
+  const handleMainReceiptUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setReceiptFile(file.name);
+      setReceiptUrl(URL.createObjectURL(file)); 
       triggerAiParsing(file);
     }
   };
 
-  // Launches bulk upload simulation for Bank Statement
   const handleBankStatementUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      setBankStatementFile(file.name);
+      setBankStatementFile(file.name); 
+      setBankUrl(URL.createObjectURL(file));
     }
   };
 
@@ -126,47 +193,99 @@ export const NewClaim: React.FC = () => {
         body: formData,
       });
       const data = await response.json();
+      console.log('[OCR] Response:', data); 
 
-      if (data.status === 'success') {
+      if (data.status === 'success' && data.extracted_data) {
         const extracted = data.extracted_data;
-        // Store extracted data for autofill
-        (window as any)._lastOcrData = extracted;
-        setAiOcrStatus('ready');
+        console.log('[OCR] Extracted data:', extracted);
+        setOcrData(extracted);
+        setAiOcrStatus('autofilled');
+
+        const merchant = extracted.merchant_name || 'Unknown Merchant';
+        const expenseDate = extracted.expense_date || new Date().toISOString().split('T')[0];
+        const totalAmount = (extracted.total_amount ?? extracted.amount ?? '0').toString();
+        const taxAmount = (extracted.tax_amount ?? extracted.tax ?? '0').toString();
+        const category = extracted.category || 'Local Travel';
+
+        setClaimTitle(`Expense at ${merchant}`);
+        setReportCategory(category);
+        setTripStartDate(expenseDate);
+
+        setItems([
+          {
+            id: Date.now(),
+            date: expenseDate,
+            category: category,
+            amount: totalAmount,
+            tax: taxAmount,
+            desc: `Automated scan from ${merchant}`,
+            billable: false,
+            currency: 'INR',
+            paymentMode: 'Personal Card',
+            projectCode: '',
+            merchantName: merchant,
+            receiptFile: file.name,
+          receiptUrl: URL.createObjectURL(file),
+            ocrValue: totalAmount,
+            ocrConfirmed: true
+          }
+        ]);
       } else {
+        console.warn('[OCR] Unexpected response structure:', data);
         setAiOcrStatus('idle');
       }
     } catch (error) {
-      console.error('OCR Error:', error);
-      setAiOcrStatus('ready');
+      console.error('[OCR] Network/parse error:', error);
+      // Don't set to 'ready' on failure — there's no data to auto-fill
+      setAiOcrStatus('idle');
     }
   };
 
-  // Auto-fill logic from the AI OCR parsed data
-  const handleAutoFill = () => {
-    const ocrData = (window as any)._lastOcrData;
-    if (!ocrData) return;
+  const triggerLineItemOcr = async (file: File, idx: number) => {
+    setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'processing', receiptFile: file.name } : item));
 
-    setAiOcrStatus('autofilled');
-    setClaimTitle(`Expense at ${ocrData.merchant_name}`);
-    setReportCategory(ocrData.category || 'Other');
-    setTripStartDate(ocrData.expense_date);
+    const formData = new FormData();
+    formData.append('file', file);
 
-    // Populate line item with OCR reference value for checking overrides later
-    setItems([
-      {
-        id: Date.now(),
-        expense_date: ocrData.expense_date,
-        merchant_name: ocrData.merchant_name,
-        category: ocrData.category || 'Other',
-        amount: ocrData.total_amount.toString(),
-        currency_code: ocrData.currency_code || 'INR',
-        payment_mode: 'cash',
-        project_cost_centre: projectCode,
-        description: `Automated scan from ${ocrData.merchant_name}`,
-        ocrValue: ocrData.total_amount.toString(),
-        ocrConfirmed: true
-      }
-    ]);
+    try {
+      const response = await fetch(OCR_SIDECAR_URL, {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json(); 
+      console.log(`[OCR line ${idx}] Response:`, data);
+
+      if (data.status === 'success' && data.extracted_data) {
+        const extracted = data.extracted_data;
+        const merchant = extracted.merchant_name || 'Unknown Merchant';
+        const expenseDate = extracted.expense_date || new Date().toISOString().split('T')[0];
+        const totalAmount = (extracted.total_amount ?? extracted.amount ?? '').toString();
+        const taxAmount = (extracted.tax_amount ?? extracted.tax ?? '').toString();
+        const category = extracted.category || categories[0]?.name || 'Local Travel';
+
+        setItems(prev => prev.map((item, i) => i === idx ? {
+          ...item,
+          date: expenseDate,
+          category: category,
+          amount: totalAmount,
+          tax: taxAmount,
+          merchantName: merchant,
+          desc: `Automated scan from ${merchant}`,
+          ocrValue: totalAmount,
+          ocrConfirmed: true,
+          ocrStatus: 'ready'
+        } : item));
+
+        if (!claimTitle) {
+          setClaimTitle(`Expense: ${merchant}`);
+        }
+      } else {
+        setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'error' } : item));
+      } 
+    } catch (error) {
+      console.error('[OCR] Error:', error);
+      setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'error' } : item));
+    }
   };
 
   const performLiveCheck = useCallback(async () => {
@@ -202,18 +321,14 @@ export const NewClaim: React.FC = () => {
     const maxLineVal = items.reduce((max, item) => Math.max(max, (parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0)), 0);
     const allLinesPolicyCompliant = items.every(item => evaluateItemPolicy(item).status === 'pass');
 
-    // Check duplicates
     const hasDup = checkForDuplicates() !== null;
 
-    // Check tampering and low trust
     const resolvedTrustScore = userGradeTrust === 'low' ? 30 : (userGradeTrust === 'high' ? 95 : userTrustScore);
 
-    // Path C: Compliance Escalation to Finance
     if (ocrTamperingDetected || reconciliationMismatch || resolvedTrustScore < 40) {
       return 'pathC';
     }
 
-    // Path A: Zero-Touch AI Fast-Track
     const isAmountFT = maxLineVal <= 5000 && totalVal <= 15000;
     const isReceiptFT = !!receiptFile;
     const isBankStatementFT = !bankStatementFile ? (resolvedTrustScore >= 80) : !reconciliationMismatch;
@@ -227,7 +342,7 @@ export const NewClaim: React.FC = () => {
     return 'pathB';
   };
 
-  // Checks for duplicates inside the context against historical claims
+  // Checks for duplicates inside the context against historical claims 
   const checkForDuplicates = (): { hasDup: boolean; dupId?: string; index?: number; amount?: string; date?: string } | null => {
     for (let i = 0; i < items.length; i++) {
       const line = items[i];
@@ -236,7 +351,7 @@ export const NewClaim: React.FC = () => {
       // Look for a claim containing an item with matching date and amount
       const matchingClaim = claims.find(c =>
         c.items.some(histItem =>
-          histItem.date === line.date &&
+          histItem.expense_date === line.date &&
           parseFloat(histItem.amount) === parseFloat(line.amount)
         )
       );
@@ -287,11 +402,11 @@ export const NewClaim: React.FC = () => {
     let finalStatus: Claim['status'] = 'submitted';
     let riskCategoryVal: Claim['riskCategory'] = 'medium';
 
-    if (calculatedPath === 'pathA') {
-      finalStatus = 'submitted'; // manager sign-off is required, pre-verified tag applied
+    if (calculatedPath === 'pathA') { 
+      finalStatus = 'submitted';
       riskCategoryVal = 'low';
-    } else if (calculatedPath === 'pathC') {
-      finalStatus = 'flagged'; // escalated to Finance directly, bypassing manager
+    } else if (calculatedPath === 'pathC') { 
+      finalStatus = 'flagged';
       riskCategoryVal = 'high';
     }
 
@@ -305,11 +420,27 @@ export const NewClaim: React.FC = () => {
       totalAmount: `₹${calculateTotal()}`,
       status: finalStatus,
       date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      items: items.map(item => ({ ...item, id: Math.random(), ocrConfirmed: !!item.ocrConfirmed })),
+      items: items.map(item => ({
+        id: Math.random(),
+        expense_date: item.date || new Date().toISOString().split('T')[0],
+        merchant_name: item.desc ? (item.desc.startsWith('Automated scan from ') ? item.desc.replace('Automated scan from ', '') : 'Merchant') : 'Merchant',
+        category: item.category,
+        amount: item.amount,
+        currency_code: 'INR',
+        payment_mode: 'cash',
+        project_cost_centre: projectCode || 'GEN-CORP',
+        description: item.desc || 'No description',
+        ocrConfirmed: !!item.ocrConfirmed,
+        ocrValue: item.ocrValue,
+        receipt_url: item.receiptUrl,
+        bank_url: item.bankUrl
+      })),
       trustScore: resolvedTrustScore,
       riskCategory: riskCategoryVal,
       receiptUploaded: !!receiptFile,
+      receipt_url: receiptUrl || undefined,
       bankStatementUploaded: !!bankStatementFile,
+      bank_statement_url: bankUrl || undefined,
       hasBankStatementMismatch: reconciliationMismatch,
       outsideHours: outsideBusinessHours,
       isFastTrackEligible: calculatedPath === 'pathA',
@@ -355,9 +486,26 @@ export const NewClaim: React.FC = () => {
       totalAmount: `₹${calculateTotal()}`,
       status: 'draft',
       date: new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }),
-      items: items.map(item => ({ ...item, id: Math.random() })),
-      receiptUploaded: !!receiptFile,
+      items: items.map(item => ({
+        id: Math.random(),
+        expense_date: item.date || new Date().toISOString().split('T')[0],
+        merchant_name: item.merchantName || item.desc?.replace('Automated scan from ', '') || 'Merchant',
+        category: item.category,
+        amount: item.amount,
+        currency_code: item.currency || 'INR',
+        payment_mode: item.paymentMode ? item.paymentMode.toLowerCase() : 'cash',
+        project_cost_centre: item.projectCode || projectCode || 'DRAFT',
+        description: item.desc || 'No description',
+        ocrConfirmed: !!item.ocrConfirmed,
+        ocrValue: item.ocrValue,
+        receipt_file: item.receiptFile,
+        receipt_url: item.receiptUrl,
+        bank_url: item.bankUrl
+      })),
+      receiptUploaded: items.some(item => !!item.receiptFile),
+      receipt_url: receiptUrl || undefined,
       bankStatementUploaded: !!bankStatementFile,
+      bank_statement_url: bankUrl || undefined,
       comments: []
     };
     addClaim(draftClaim);
@@ -371,19 +519,27 @@ export const NewClaim: React.FC = () => {
   };
 
   const prevStep = () => {
-    if (currentStep === 'items') setCurrentStep('details');
+    if (currentStep === 'items') {
+      if (claimType === 'multiline') setClaimType(null);
+      else setCurrentStep('details');
+    }
     else if (currentStep === 'review') setCurrentStep('items');
+    else if (currentStep === 'details') setClaimType(null);
   };
 
   const addItem = () => {
     const newItem: ItemEntry = {
       id: Date.now(),
       date: new Date().toISOString().split('T')[0],
-      category: reportCategory,
+      category: categories[0]?.name || 'Local Travel',
       amount: '',
       tax: '',
       desc: '',
-      billable: false
+      billable: false,
+      currency: 'INR',
+      paymentMode: 'Personal Card',
+      projectCode: '',
+      merchantName: '',
     };
     setItems([...items, newItem]);
   };
@@ -394,57 +550,194 @@ export const NewClaim: React.FC = () => {
     }
   };
 
-  // --- Real-time Policy Coach Evaluator ---
   const evaluateItemPolicy = (item: ItemEntry): { status: 'pass' | 'warning' | 'error'; message: string } => {
     if (!item.amount || !item.category) return { status: 'pass', message: 'Enter values to evaluate policy.' };
 
-    const policy = policies.find(p => p.category === item.category);
-    if (!policy) return { status: 'pass', message: 'Within allowed limits.' };
+    const catRule = categories.find(c => c.name === item.category);
+    if (!catRule) {
+      // fallback to legacy policy check
+      const policy = policies.find(p => p.category === item.category);
+      if (!policy) return { status: 'pass', message: 'Within allowed limits.' };
+      const amountVal = parseFloat(item.amount);
+      if (amountVal > policy.limit) {
+        return {
+          status: 'error',
+          message: `Exceeds the category limit of ₹${policy.limit.toLocaleString('en-IN')} by ₹${(amountVal - policy.limit).toLocaleString('en-IN')}. Requires justification.`
+        };
+      }
+      return { status: 'pass', message: 'Within allowed limits.' };
+    }
 
     const amountVal = parseFloat(item.amount);
 
-    // Check category limit
-    if (amountVal > policy.limit) {
+    // 1. Transaction Limit check
+    if (catRule.limits.perTransaction > 0 && amountVal > catRule.limits.perTransaction) {
       return {
         status: 'error',
-        message: `Exceeds the category limit of ₹${policy.limit.toLocaleString('en-IN')} by ₹${(amountVal - policy.limit).toLocaleString('en-IN')}. Requires justification.`
+        message: `Exceeds per-transaction limit of ₹${catRule.limits.perTransaction.toLocaleString('en-IN')} for ${catRule.name}.`
       };
     }
 
-    if (amountVal >= policy.limit * 0.8) {
-      return {
-        status: 'warning',
-        message: `This expense brings you close to your monthly category limit (₹${policy.limit.toLocaleString('en-IN')}).`
-      };
-    }
-
-    // Check backdate limit
-    if (item.date) {
+    if (item.date && catRule.backdateLimitDays > 0) {
       const today = new Date();
       const claimDate = new Date(item.date);
       const diffTime = Math.abs(today.getTime() - claimDate.getTime());
       const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
 
-      if (diffDays > policy.backdateLimitDays) {
+      if (diffDays > catRule.backdateLimitDays) {
         return {
           status: 'error',
-          message: `Claim date exceeds allowed backdate limit of ${policy.backdateLimitDays} days (claimed ${diffDays} days ago).`
+          message: `Claim date exceeds category backdate limit of ${catRule.backdateLimitDays} days (claimed ${diffDays} days ago).`
         };
       }
     }
 
-    return { status: 'pass', message: 'Within your allowed limit.' };
+    if (item.date && !catRule.weekendsAllowed) {
+      const claimDate = new Date(item.date);
+      const day = claimDate.getDay(); // 0 is Sunday, 6 is Saturday
+      if (day === 0 || day === 6) {
+        return {
+          status: 'error',
+          message: `Weekend claims are disabled for ${catRule.name}.`
+        };
+      }
+    }
+
+    if (currentRole && catRule.allowedRoles.length > 0 && !catRule.allowedRoles.includes('All')) {
+      const isAllowed = catRule.allowedRoles.some(r => r.toLowerCase() === currentRole.toLowerCase());
+      if (!isAllowed) {
+        return {
+          status: 'error',
+          message: `Your role (${currentRole}) is not authorized to claim under ${catRule.name}.`
+        };
+      }
+    }
+
+    if (catRule.mandatoryAttachments && catRule.mandatoryAttachments.length > 0 && !item.receiptFile) {
+      return {
+        status: 'error',
+        message: `A receipt or attachment is mandatory for category ${catRule.name}.`
+      };
+    }
+
+    if (catRule.limits.perTransaction > 0 && amountVal >= catRule.limits.perTransaction * 0.85) {
+      return {
+        status: 'warning',
+        message: `Close to the maximum single transaction limit of ₹${catRule.limits.perTransaction.toLocaleString('en-IN')}.`
+      };
+    }
+
+    return { status: 'pass', message: 'Compliant with policy rules.' };
   };
+
+  if (claimType === null) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4 space-y-8">
+        <div className="text-center space-y-3">
+          <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest">New Claim Setup</p>
+          <h2 className="text-4xl font-black text-slate-900 tracking-tight uppercase font-outfit">Select Claim Type</h2>
+          <p className="text-slate-500 max-w-md mx-auto text-sm font-medium">
+            Choose how you want to submit your business expenses to start the workflow.
+          </p>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-4">
+          <motion.div
+            whileHover={{ y: -6 }}
+            onClick={() => {
+              setClaimType('single');
+              setClaimTitle('Single Expense Claim');
+              setItems([
+                {
+                  id: Date.now(),
+                  date: new Date().toISOString().split('T')[0],
+                  category: categories[0]?.name || 'Local Travel',
+                  amount: '', tax: '', desc: '',
+                  billable: false,
+                  currency: 'INR',
+                  paymentMode: 'Personal Card',
+                  projectCode: '',
+                  merchantName: '',
+                }
+              ]);
+              setCurrentStep('details');
+            }}
+            className="premium-card p-8 cursor-pointer flex flex-col justify-between space-y-6 border-t-4 border-t-blue-500 group"
+          >
+            <div className="space-y-4">
+              <div className="w-14 h-14 bg-blue-50 text-blue-650 rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Receipt size={28} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-black text-slate-900 uppercase">Single Expense</h3>
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                  Submit a claim containing exactly one expense item (e.g. a single meal, a single taxi receipt, a software subscription).
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-black text-blue-650 uppercase tracking-wider">
+              Create Single Claim <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+            </div>
+          </motion.div>
+
+          <motion.div
+            whileHover={{ y: -6 }}
+            onClick={() => {
+              setClaimType('multiline');
+              setClaimTitle('Multiline Business Expenses');
+              setItems([
+                {
+                  id: Date.now(),
+                  date: new Date().toISOString().split('T')[0],
+                  category: categories[0]?.name || 'Local Travel',
+                  amount: '', tax: '', desc: '',
+                  billable: false,
+                  currency: 'INR',
+                  paymentMode: 'Personal Card',
+                  projectCode: '',
+                  merchantName: '',
+                }
+              ]);
+              setCurrentStep('items');
+            }}
+            className="premium-card p-8 cursor-pointer flex flex-col justify-between space-y-6 border-t-4 border-t-[#1E3A5F] group"
+          >
+            <div className="space-y-4">
+              <div className="w-14 h-14 bg-[#1E3A5F]/10 text-[#1E3A5F] rounded-2xl flex items-center justify-center group-hover:scale-110 transition-transform">
+                <FileText size={28} />
+              </div>
+              <div className="space-y-2">
+                <h3 className="text-lg font-black text-slate-900 uppercase">Multiline Claim</h3>
+                <p className="text-xs text-slate-500 font-medium leading-relaxed">
+                  Group multiple line items together under a single claim folder (e.g. "Chennai Client Trip - May" containing taxi, lodging, flights, meals).
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 text-xs font-black text-[#1E3A5F] uppercase tracking-wider">
+              Create Multiline Report <ArrowRight size={14} className="group-hover:translate-x-1 transition-transform" />
+            </div>
+          </motion.div>
+        </div>
+
+        <div className="pt-8 text-center">
+          <button
+            onClick={() => navigate(-1)}
+            className="px-6 py-2.5 border border-slate-200 bg-white rounded-xl text-xs font-black text-slate-500 hover:bg-slate-50 transition-all uppercase tracking-widest cursor-pointer"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-6xl mx-auto space-y-8 pb-20">
-
-      {/* Header & Stepper */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4">
           <button
             onClick={() => navigate(-1)}
-            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500"
+            className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-500 cursor-pointer"
           >
             <ArrowLeft size={20} />
           </button>
@@ -455,11 +748,15 @@ export const NewClaim: React.FC = () => {
         </div>
 
         <div className="flex items-center gap-2 bg-slate-50 p-1.5 rounded-2xl border border-slate-100 shadow-sm">
-          <StepItem active={currentStep === 'details'} done={currentStep !== 'details'} num={1} label="Basic Details" />
+          {claimType !== 'multiline' && (
+            <>
+              <StepItem active={currentStep === 'details'} done={currentStep !== 'details'} num={1} label="Basic Details" />
+              <div className="w-8 h-[1px] bg-slate-200"></div>
+            </>
+          )}
+          <StepItem active={currentStep === 'items'} done={currentStep === 'review'} num={claimType === 'multiline' ? 1 : 2} label="Line Items" />
           <div className="w-8 h-[1px] bg-slate-200"></div>
-          <StepItem active={currentStep === 'items'} done={currentStep === 'review'} num={2} label="Line Items" />
-          <div className="w-8 h-[1px] bg-slate-200"></div>
-          <StepItem active={currentStep === 'review'} num={3} label="Review" />
+          <StepItem active={currentStep === 'review'} num={claimType === 'multiline' ? 2 : 3} label="Review" />
         </div>
       </div>
 
@@ -474,13 +771,19 @@ export const NewClaim: React.FC = () => {
                 animate={{ opacity: 1, y: 0 }}
                 exit={{ opacity: 0, y: -20 }}
                 className="space-y-6"
-              >
-                <div className="premium-card p-8 space-y-6">
-                  <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest border-b border-slate-100 pb-4">Expense Overview</h3>
-
-                  <div className="grid grid-cols-2 gap-6">
+              > 
+                <div className="premium-card p-8 space-y-6"> 
+                  <div className="flex items-center justify-between border-b border-slate-100 pb-4">
+                    <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Expense Overview</h3>
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider bg-slate-100 px-3 py-1 rounded-full flex items-center gap-1.5">
+                      Mode: <span className="text-primary font-black">{claimType === 'single' ? 'Single' : 'Multiline'}</span>
+                      <button onClick={() => setClaimType(null)} className="ml-1 text-blue-650 hover:underline cursor-pointer">Change</button>
+                    </span>
+                  </div>
+ 
+                  <div className="grid grid-cols-2 gap-6"> 
                     <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Claim Title</label>
+                      <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Claim Title <span className="text-rose-500">*</span></label>
                       <input
                         type="text"
                         value={claimTitle}
@@ -490,27 +793,24 @@ export const NewClaim: React.FC = () => {
                       />
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Report Category</label>
+                      <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Report Category <span className="text-rose-500">*</span></label>
                       <select
                         value={reportCategory}
                         onChange={(e) => setReportCategory(e.target.value)}
                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none font-bold cursor-pointer"
                       >
-                        <option>Travel Expenses</option>
-                        <option>Mileage Allowance</option>
-                        <option>Meal and Entertainment</option>
-                        <option>Internet/Broadband Allowances</option>
-                        <option>Children Education Allowances</option>
-                        <option>Others</option>
+                        {categories.map(c => (
+                          <option key={c.id} value={c.name}>{c.name}</option>
+                        ))}
                       </select>
                     </div>
                     <div className="space-y-2">
-                      <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Project Code</label>
+                      <label className="text-xs font-black text-slate-500 uppercase tracking-wider">Invoice ID <span className="text-rose-500">*</span></label>
                       <input
                         type="text"
                         value={projectCode}
                         onChange={(e) => setProjectCode(e.target.value)}
-                        placeholder="PRJ-2024-001"
+                        placeholder="INV-2024-001"
                         className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-sm outline-none font-semibold focus:border-black"
                       />
                     </div>
@@ -534,85 +834,104 @@ export const NewClaim: React.FC = () => {
                     </div>
                   </div>
 
-                  {/* Capture & AI Pre-Processing Panel */}
                   <div className="space-y-6 pt-4 border-t border-slate-100">
                     <label className="text-xs font-black text-slate-500 uppercase tracking-wider block">Evidence & Automated Verification</label>
 
                     <div className="grid grid-cols-2 gap-4">
-<div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-black transition-colors">
-      <div>
-        <p className="text-xs font-black text-slate-800 uppercase tracking-wide">Receipt or Invoice</p>
-        <p className="text-[11px] text-slate-500 mt-1 font-medium">Upload a JPG, PNG or PDF copy of the transaction receipt.</p>
-      </div>
-      <div className="mt-4">
-        <input
-          id="receipt-file-picker"
-          type="file"
-          accept="image/*,application/pdf"
-          className="hidden"
-          onChange={handleReceiptUpload}
-        />
-        <button
-          type="button"
-          onClick={() => document.getElementById('receipt-file-picker')?.click()}
-          className="w-full bg-[#FAF8F3] border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
-        >
-          [ Upload Receipt ]
-        </button>
-      </div>
-      {receiptFile && (
-        <div className="mt-2 text-[10px] text-slate-650 font-black bg-[#FAF8F3] border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
-          <Paperclip size={12} className="text-slate-400 shrink-0" />
-          {receiptFile}
-        </div>
-      )}
-    </div>
+                      <div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-black transition-colors">
+                        <div>
+                          <p className="text-xs font-black text-slate-800 uppercase tracking-wide">Receipt or Invoice <span className="text-rose-500">*</span></p>
+                          <p className="text-[11px] text-slate-500 mt-1 font-medium">Upload a JPG, PNG or PDF copy of the transaction receipt.</p>
+                        </div>
+                        <div className="mt-4">
+                          <input
+                            id="receipt-file-picker"
+                            type="file"
+                            accept="image/*,application/pdf"
+                            className="hidden"
+                            onChange={handleMainReceiptUpload}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById('receipt-file-picker')?.click()}
+                            className="w-full bg-[#FAF8F3] border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
+                          >
+                            [ Upload Receipt ]
+                          </button>
+                        </div>
+                        {receiptFile && (
+                          <div className="mt-2 space-y-2">
+                            <div className="text-[10px] text-slate-650 font-black bg-[#FAF8F3] border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
+                              <Paperclip size={12} className="text-slate-400 shrink-0" />
+                              {receiptFile}
+                            </div>
+                            {receiptUrl && (
+                              <button 
+                                type="button" 
+                                onClick={() => window.open(receiptUrl, '_blank')}
+                                className="flex items-center gap-1.5 text-[10px] font-black text-blue-650 uppercase hover:underline cursor-pointer ml-1"
+                              >
+                                <Eye size={12} /> View Preview
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
 
-  <div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-[#1E3A5F] transition-colors">
-      <div>
-        <p className="text-xs font-black text-slate-800 uppercase tracking-wide">Bank Statement (PDF/CSV)</p>
-        <p className="text-[11px] text-slate-500 mt-1 font-medium">Provide statement for dynamic reconciliation check.</p>
-      </div>
-      <div className="mt-4">
-        <input
-          id="bank-file-picker"
-          type="file"
-          accept=".csv,.pdf"
-          className="hidden"
-          onChange={handleBankStatementUpload}
-        />
-        <button
-          type="button"
-          onClick={() => document.getElementById('bank-file-picker')?.click()}
-          className="w-full bg-[#FAF8F3] border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
-        >
-          [ Upload Bank Statement ]
-        </button>
-      </div>
-      {bankStatementFile && (
-        <div className="mt-2 text-[10px] text-slate-650 font-black bg-[#FAF8F3] border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
-          <Paperclip size={12} className="text-slate-400 shrink-0" />
-          {bankStatementFile}
-        </div>
-      )}
-    </div>
-  </div>
+                      <div className="p-5 border border-slate-250 rounded-2xl bg-slate-50/50 flex flex-col justify-between hover:border-[#1E3A5F] transition-colors">
+                        <div>
+                          <p className="text-xs font-black text-slate-800 uppercase tracking-wide">Bank Statement (PDF/CSV) <span className="text-rose-500">*</span></p>
+                          <p className="text-[11px] text-slate-500 mt-1 font-medium">Provide statement for dynamic reconciliation check.</p>
+                        </div>
+                        <div className="mt-4">
+                          <input
+                            id="bank-file-picker"
+                            type="file"
+                            accept=".csv,.pdf"
+                            className="hidden"
+                            onChange={handleBankStatementUpload}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById('bank-file-picker')?.click()}
+                            className="w-full bg-[#FAF8F3] border border-slate-300 px-4 py-2.5 rounded-xl text-xs font-bold hover:bg-slate-50 transition-colors uppercase tracking-widest cursor-pointer"
+                          >
+                            [ Upload Bank Statement ]
+                          </button>
+                        </div>
+                        {bankStatementFile && (
+                          <div className="mt-2 space-y-2">
+                            <div className="text-[10px] text-slate-650 font-black bg-[#FAF8F3] border border-slate-200 p-2.5 rounded-xl truncate flex items-center gap-1.5">
+                              <Paperclip size={12} className="text-slate-400 shrink-0" />
+                              {bankStatementFile}
+                            </div>
+                            {bankUrl && (
+                              <button 
+                                type="button" 
+                                onClick={() => window.open(bankUrl, '_blank')}
+                                className="flex items-center gap-1.5 text-[10px] font-black text-[#1E3A5F] uppercase hover:underline cursor-pointer ml-1"
+                              >
+                                <Eye size={12} /> View Preview
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
 
-  {/* AI OCR background status & Auto-fill */ }
-  {
-    aiOcrStatus !== 'idle' && (
-      <div className="p-5 bg-primary text-[#FAF8F3] rounded-2xl space-y-3 shadow-xl">
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-black uppercase tracking-widest flex items-center gap-2 text-yellow-400">
-              <Zap size={14} className="animate-pulse" />
-              AI OCR Smart Auto-Fill
-            </p>
-            <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${aiOcrStatus === 'processing' ? 'bg-amber-500/20 text-amber-300 animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
-              }`}>
-              {aiOcrStatus === 'processing' ? 'Analyzing file...' : 'Analysis Ready'}
-            </span>
-          </div>
-
+                    {aiOcrStatus !== 'idle' && (
+                      <div className="p-5 bg-primary text-[#FAF8F3] rounded-2xl space-y-3 shadow-xl">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-black uppercase tracking-widest flex items-center gap-2 text-yellow-400">
+                            <Zap size={14} className="animate-pulse" />
+                            AI OCR Smart Auto-Fill
+                          </p>
+                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${aiOcrStatus === 'processing' ? 'bg-amber-500/20 text-amber-300 animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
+                            }`}>
+                            {aiOcrStatus === 'processing' ? 'Analyzing file...' : 'Analysis Ready'}
+                          </span> 
+                        </div>
+          
           {aiOcrStatus === 'processing' && (
             <div className="space-y-2">
               <p className="text-[11px] text-slate-400 font-medium">Reading merchant name, date, total amount, taxes, and transaction details...</p>
@@ -630,19 +949,10 @@ export const NewClaim: React.FC = () => {
           {aiOcrStatus !== 'processing' && (
             <div className="flex items-center justify-between">
               <div className="text-[11px] text-slate-350 space-y-0.5 font-semibold">
-                <p>📌 <span className="font-black text-[#FAF8F3]">Merchant:</span> Indigo Cabs / Airlines</p>
-                <p>💰 <span className="font-black text-[#FAF8F3]">Scanned Total:</span> ₹8,500.00 (Tax ₹1,530.00)</p>
-                <p>📅 <span className="font-black text-[#FAF8F3]">Scanned Date:</span> 2024-10-18</p>
+                <p>📌 <span className="font-black text-[#FAF8F3]">Merchant:</span> {ocrData ? ocrData.merchant_name : 'Indigo Cabs / Airlines'}</p>
+                <p>💰 <span className="font-black text-[#FAF8F3]">Scanned Total:</span> ₹{ocrData ? parseFloat(ocrData.total_amount || '0').toLocaleString('en-IN') : '8,500.00'} (Tax ₹{ocrData ? parseFloat(ocrData.tax_amount || '0').toLocaleString('en-IN') : '1,530.00'})</p>
+                <p>📅 <span className="font-black text-[#FAF8F3]">Scanned Date:</span> {ocrData ? ocrData.expense_date : '2024-10-18'}</p>
               </div>
-              {aiOcrStatus === 'ready' && (
-                <button
-                  type="button"
-                  onClick={handleAutoFill}
-                  className="bg-[#FAF8F3] text-primary px-5 py-2.5 rounded-xl text-xs font-black hover:bg-slate-100 transition-all uppercase tracking-widest cursor-pointer"
-                >
-                  [ Auto-Fill ]
-                </button>
-              )}
             </div>
           )}
         </div>
@@ -662,18 +972,20 @@ export const NewClaim: React.FC = () => {
       exit={{ opacity: 0, y: -20 }}
       className="space-y-6"
     >
-      <div className="flex items-center justify-between">
-        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Expense Items</h3>
-        <button
-          onClick={addItem}
-          className="flex items-center gap-2 text-xs font-black bg-accent text-[#FAF8F3] px-4 py-2.5 rounded-xl hover:bg-emerald-600 transition-all uppercase tracking-widest cursor-pointer"
-        >
-          <Plus size={16} />
-          ADD ITEM
-        </button>
+      <div className="flex items-center justify-between"> 
+        <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">Expense Items</h3> 
+        {claimType === 'multiline' && (
+          <button
+            onClick={addItem}
+            className="flex items-center gap-2 text-xs font-black bg-accent text-[#FAF8F3] px-4 py-2.5 rounded-xl hover:bg-emerald-600 transition-all uppercase tracking-widest cursor-pointer"
+          >
+            <Plus size={16} />
+            ADD ITEM
+          </button>
+        )}
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-6">
         {items.map((item, idx) => {
           const policyCheck = evaluateItemPolicy(item);
           const isOcrModified = item.ocrValue && parseFloat(item.amount) > parseFloat(item.ocrValue) * 1.5;
@@ -687,7 +999,7 @@ export const NewClaim: React.FC = () => {
                   policyCheck.status === 'warning' ? 'border-l-amber-500' : 'border-l-slate-200 hover:border-l-black'
                 }`}
             >
-              <div className="flex items-start justify-between">
+              <div className="flex items-start justify-between"> 
                 <div className="flex gap-4">
                   <div className="w-10 h-10 rounded-xl bg-slate-100 flex items-center justify-center text-slate-500 shadow-inner">
                     <Receipt size={20} />
@@ -697,14 +1009,17 @@ export const NewClaim: React.FC = () => {
                     <p className="text-xs text-slate-500 font-medium">Add details for this item</p>
                   </div>
                 </div>
-                <button
-                  onClick={() => removeItem(item.id)}
-                  className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                >
-                  <Trash2 size={18} />
-                </button>
+                {claimType === 'multiline' && items.length > 1 && (
+                  <button
+                    onClick={() => removeItem(item.id)}
+                    className="p-2 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+                  >
+                    <Trash2 size={18} />
+                  </button>
+                )}
               </div>
 
+              {/* Row 1: Date, Category, Amount, Tax/GST */}
               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Date</label>
@@ -730,16 +1045,13 @@ export const NewClaim: React.FC = () => {
                     }}
                     className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold cursor-pointer"
                   >
-                    <option>Travel Expenses</option>
-                    <option>Mileage Allowance</option>
-                    <option>Meal and Entertainment</option>
-                    <option>Internet/Broadband Allowances</option>
-                    <option>Children Education Allowances</option>
-                    <option>Others</option>
+                    {categories.map(c => (
+                      <option key={c.id} value={c.name}>{c.name}</option>
+                    ))}
                   </select>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Amount</label>
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Amount <span className="text-rose-500">*</span></label>
                   <div className="relative">
                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₹</span>
                     <input
@@ -756,7 +1068,7 @@ export const NewClaim: React.FC = () => {
                   </div>
                 </div>
                 <div className="space-y-1.5">
-                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Tax/GST</label>
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Tax/GST <span className="text-rose-500">*</span></label>
                   <input
                     type="number"
                     value={item.tax}
@@ -770,6 +1082,171 @@ export const NewClaim: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* Row 2: Currency, Payment Mode, Project Code, Merchant Name */}
+              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Currency</label>
+                  <select
+                    value={item.currency || 'INR'}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[idx].currency = e.target.value;
+                      setItems(newItems);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold cursor-pointer"
+                  >
+                    <option value="INR">INR (₹)</option>
+                    <option value="USD">USD ($)</option>
+                    <option value="EUR">EUR (€)</option>
+                    <option value="GBP">GBP (£)</option>
+                    <option value="AED">AED (د.إ)</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Payment Mode</label>
+                  <select
+                    value={item.paymentMode || 'Personal Card'}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[idx].paymentMode = e.target.value;
+                      setItems(newItems);
+                    }}
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold cursor-pointer"
+                  >
+                    <option value="Personal Card">Personal Card</option>
+                    <option value="Company Card">Company Card</option>
+                    <option value="Cash">Cash</option>
+                    <option value="UPI">UPI</option>
+                  </select>
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Invoice ID / Cost Center</label>
+                  <input
+                    type="text"
+                    value={item.projectCode || ''}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[idx].projectCode = e.target.value;
+                      setItems(newItems);
+                    }}
+                    placeholder="INV-ID"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Merchant Name <span className="text-rose-500">*</span></label>
+                  <input
+                    type="text"
+                    value={item.merchantName || ''}
+                    onChange={(e) => {
+                      const newItems = [...items];
+                      newItems[idx].merchantName = e.target.value;
+                      setItems(newItems);
+                    }}
+                    placeholder="e.g. Uber, Amazon, Marriott"
+                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold"
+                  />
+                </div>
+              </div>
+
+              {/* Row 3: Description */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Short Description / Justification</label>
+                <input
+                  type="text"
+                  value={item.desc}
+                  onChange={(e) => {
+                    const newItems = [...items];
+                    newItems[idx].desc = e.target.value;
+                    setItems(newItems);
+                  }}
+                  placeholder="Provide transaction details or business justification"
+                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold"
+                />
+              </div>
+
+                {/* ITEM EVIDENCE SECTION */}
+                <div className="pt-4 border-t border-slate-100">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Paperclip size={14} className="text-slate-400" />
+                    <h5 className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Item Documentation</h5>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Per-item Receipt */}
+                    <div className="p-4 border border-slate-200 rounded-xl bg-slate-50 hover:border-black transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <p className="text-[10px] font-black text-slate-800 uppercase">Receipt or Invoice <span className="text-rose-500">*</span></p>
+                        {item.receiptUrl && (
+                          <button 
+                            type="button" 
+                            onClick={() => window.open(item.receiptUrl, '_blank')}
+                            className="text-[9px] font-black text-blue-650 uppercase flex items-center gap-1 hover:underline cursor-pointer"
+                          >
+                            <Eye size={10} /> Preview
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        id={`item-receipt-${idx}`}
+                        type="file"
+                        accept="image/*,application/pdf"
+                        className="hidden"
+                        onChange={(e) => handleItemReceiptUpload(e, idx)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById(`item-receipt-${idx}`)?.click()}
+                        className={`w-full py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                          item.receiptFile 
+                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' 
+                            : 'bg-white border border-slate-250 text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        {item.receiptFile ? `[ ${item.receiptFile} ]` : '[ Upload Receipt ]'}
+                      </button>
+                      {item.ocrStatus === 'processing' && (
+                        <div className="mt-2 flex items-center gap-2 text-blue-650 text-[8px] font-black uppercase">
+                          <Loader2 size={10} className="animate-spin" /> AI Analyzing...
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Per-item Bank Statement */}
+                    <div className="p-4 border border-slate-200 rounded-xl bg-slate-50 hover:border-blue-650 transition-all">
+                      <div className="flex justify-between items-start mb-3">
+                        <p className="text-[10px] font-black text-slate-800 uppercase">Bank Statement (PDF/CSV) <span className="text-rose-500">*</span></p>
+                        {item.bankUrl && (
+                          <button 
+                            type="button" 
+                            onClick={() => window.open(item.bankUrl, '_blank')}
+                            className="text-[9px] font-black text-blue-650 uppercase flex items-center gap-1 hover:underline cursor-pointer"
+                          >
+                            <Eye size={10} /> Preview
+                          </button>
+                        )}
+                      </div>
+                      <input
+                        id={`item-bank-${idx}`}
+                        type="file"
+                        accept=".pdf,.csv"
+                        className="hidden"
+                        onChange={(e) => handleItemBankUpload(e, idx)}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById(`item-bank-${idx}`)?.click()}
+                        className={`w-full py-2 rounded-lg text-[9px] font-black uppercase tracking-widest transition-all cursor-pointer ${
+                          item.bankFile 
+                            ? 'bg-blue-50 text-blue-700 border border-blue-100' 
+                            : 'bg-white border border-slate-250 text-slate-500 hover:bg-slate-100'
+                        }`}
+                      >
+                        {item.bankFile ? `[ ${item.bankFile} ]` : '[ Upload Statement ]'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
 
               {/* OCR Verification Mismatch Warning */}
               {isOcrModified && (
@@ -817,7 +1294,7 @@ export const NewClaim: React.FC = () => {
 }
 
 {/* STEP 3: Review */ }
-{
+ {
   currentStep === 'review' && (
     <motion.div
       key="review"
@@ -836,8 +1313,8 @@ export const NewClaim: React.FC = () => {
             <h4 className="text-3xl font-black text-slate-900">₹{calculateTotal()}</h4>
           </div>
         </div>
-
-        <div className="grid grid-cols-2 gap-12">
+ 
+        <div className="grid grid-cols-2 gap-12"> 
           <div className="space-y-4">
             <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
               <FileText size={14} />
@@ -846,7 +1323,7 @@ export const NewClaim: React.FC = () => {
             <div className="bg-slate-50 rounded-2xl p-6 space-y-4">
               <ReviewRow label="Title" value={claimTitle || 'N/A'} />
               <ReviewRow label="Category" value={reportCategory} />
-              <ReviewRow label="Project" value={projectCode || 'N/A'} />
+              <ReviewRow label="Invoice ID" value={projectCode || 'N/A'} />
               <ReviewRow label="Dates" value={tripStartDate ? `${tripStartDate} - ${tripEndDate || '...'}` : 'N/A'} />
             </div>
           </div>
@@ -874,9 +1351,9 @@ export const NewClaim: React.FC = () => {
             <button 
               onClick={prevStep}
               className={`px-6 py-2.5 rounded-xl text-xs font-black uppercase tracking-widest transition-all cursor-pointer ${
-                currentStep === 'details' ? 'text-slate-350 cursor-not-allowed' : 'text-slate-650 hover:bg-slate-100'
+                (currentStep === 'details' && claimType !== 'multiline') ? 'text-slate-350 cursor-not-allowed' : 'text-slate-650 hover:bg-slate-100'
               }`}
-              disabled={currentStep === 'details'}
+              disabled={currentStep === 'details' && claimType !== 'multiline'}
             >
               Back
             </button>
@@ -890,8 +1367,8 @@ export const NewClaim: React.FC = () => {
               </button>
               <button 
                 onClick={nextStep}
-                disabled={isSubmitting}
-                className="bg-accent text-[#FAF8F3] px-8 py-3 rounded-xl text-xs font-black hover:bg-emerald-600 transition-all shadow-lg shadow-accent/10 flex items-center gap-2 uppercase tracking-widest cursor-pointer"
+                disabled={isSubmitting || !isStepValid()}
+                className="bg-accent text-[#FAF8F3] px-8 py-3 rounded-xl text-xs font-black hover:bg-emerald-600 transition-all shadow-lg shadow-accent/10 flex items-center gap-2 uppercase tracking-widest cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {currentStep === 'review' ? '[ Submit Claim ]' : 'Continue'}
                 <ArrowRight size={16} />
@@ -1102,7 +1579,6 @@ export const NewClaim: React.FC = () => {
         </div>
 
         <div className="p-3.5 bg-rose-50/50 border border-rose-100 rounded-2xl text-[11px] text-rose-900 leading-relaxed font-semibold">
-          ⚠️ Submitting a duplicate invoice might downgrade your Employee Trust Score and route your expenses directly to Audit.
         </div>
 
         <div className="flex gap-3 pt-2">
@@ -1111,9 +1587,20 @@ export const NewClaim: React.FC = () => {
               // Remove duplicate line
               if (duplicateWarning.itemIndex !== undefined) {
                 const newItems = [...items];
-                newItems.splice(duplicateWarning.itemIndex, 1);
                 if (newItems.length === 0) {
-                  newItems.push({ id: Date.now(), date: '', category: 'Travel Expenses', amount: '', tax: '', desc: '', billable: false });
+                  newItems.push({
+                    id: Date.now(),
+                    date: '',
+                    category: categories[0]?.name || 'Local Travel',
+                    amount: '',
+                    tax: '',
+                    desc: '',
+                    billable: false,
+                    currency: 'INR',
+                    paymentMode: 'Personal Card',
+                    projectCode: '',
+                    merchantName: '',
+                  }); 
                 }
                 setItems(newItems);
               }
@@ -1125,7 +1612,6 @@ export const NewClaim: React.FC = () => {
           </button>
           <button
             onClick={() => {
-              // Bypassed
               setDuplicateWarning(null);
               // Force proceed
               setTimeout(() => {

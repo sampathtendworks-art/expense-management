@@ -57,7 +57,6 @@ export const Policies: React.FC = () => {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-20">
-      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -65,8 +64,6 @@ export const Policies: React.FC = () => {
           <p className="text-slate-500 mt-2 font-medium">Configure spend limits, backdate thresholds, and receipt auditing parameters</p>
         </div>
       </div>
-
-      {/* Grid */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         
         {/* Left 2 Columns: Category Policies Table */}
@@ -85,7 +82,6 @@ export const Policies: React.FC = () => {
 
                 return (
                   <div key={policy.category} className="p-6 hover:bg-slate-50/20 transition-all">
-                    {isEditing ? (
                       /* EDIT MODE */
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
@@ -152,7 +148,6 @@ export const Policies: React.FC = () => {
                           </button>
                         </div>
                       </div>
-                    ) : (
                       /* VIEW MODE */
                       <div className="flex items-center justify-between flex-wrap gap-4">
                         <div className="space-y-1">
@@ -173,14 +168,12 @@ export const Policies: React.FC = () => {
                           Configure
                         </button>
                       </div>
-                    )}
                   </div>
                 );
               })}
             </div>
           </div>
         </div>
-
         {/* Right 1 Column: Grade Tier Presets Settings & Info */}
         <div className="space-y-6">
           {/* Grade Preset Settings */}
@@ -232,8 +225,6 @@ export const Policies: React.FC = () => {
               💡 <span className="font-black">Active Tier Note:</span> Limits on the left table will automatically scale depending on the selected Grade preset to showcase policy updates.
             </div>
           </div>
-
-          {/* Quick Guide Card */}
           <div className="bg-slate-900 text-white p-6 rounded-3xl space-y-4 shadow-xl">
             <h4 className="text-xs font-black uppercase tracking-widest text-yellow-400 flex items-center gap-1.5">
               <Sparkles size={14} className="animate-pulse" />
@@ -244,13 +235,8 @@ export const Policies: React.FC = () => {
             </p>
           </div>
         </div>
-
-      </div>
-    </div>
-  );
+      </div>    </div>  );
 };
-
-// --- Sub-components ---
 
 interface GradeButtonProps {
   label: string;

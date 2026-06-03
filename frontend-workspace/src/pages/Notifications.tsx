@@ -41,7 +41,6 @@ export const Notifications: React.FC = () => {
 
   return (
     <div className="space-y-8 max-w-4xl mx-auto pb-20">
-      
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -59,8 +58,6 @@ export const Notifications: React.FC = () => {
           </button>
         )}
       </div>
-
-      {/* Notifications Queue */}
       <div className="premium-card overflow-hidden">
         <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
           <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
@@ -101,7 +98,6 @@ export const Notifications: React.FC = () => {
                 </motion.div>
               ))
             ) : (
-              /* EMPTY STATE */
               <div className="p-24 text-center space-y-4">
                 <div className="w-20 h-20 bg-slate-50 rounded-full flex items-center justify-center mx-auto text-slate-200 shadow-inner">
                   <Inbox size={40} className="text-slate-350" />
@@ -115,7 +111,6 @@ export const Notifications: React.FC = () => {
           </AnimatePresence>
         </div>
       </div>
-      
     </div>
   );
 };
