@@ -11,6 +11,7 @@ import {
 export const Policies: React.FC = () => {
   const { policies, updatePolicy } = useClaims();
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  void editingCategory; // state is set via setEditingCategory in click handlers
   const [editLimit, setEditLimit] = useState<number>(0);
   const [editBackdate, setEditBackdate] = useState<number>(0);
   const [editMandatory, setEditMandatory] = useState<boolean>(false);

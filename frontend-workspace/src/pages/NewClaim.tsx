@@ -47,7 +47,7 @@ interface ItemEntry {
   ocrStatus?: 'idle' | 'processing' | 'ready' | 'error';
 }
 
-const OCR_SIDECAR_URL = 'http://localhost:8001/api/v1/ocr/parse';
+const OCR_SIDECAR_URL = '/ocr-api/api/v1/ocr/parse';
 const AI_SIDECAR_URL = '/ai-api/api/v1/evaluate-claim';
 
 export const NewClaim: React.FC = () => {
@@ -81,7 +81,6 @@ export const NewClaim: React.FC = () => {
       merchantName: '',
     }
   ]);
-
   const [livePolicyResult, setLivePolicyResult] = useState<any>(null);
   const [ocrData, setOcrData] = useState<any>(null);
 
@@ -105,6 +104,7 @@ export const NewClaim: React.FC = () => {
   const [userGradeTrust, setUserGradeTrust] = useState<'high' | 'normal' | 'low'>('normal');
   const [ocrTamperingDetected, setOcrTamperingDetected] = useState<boolean>(false);
   const [outsideBusinessHours, setOutsideBusinessHours] = useState<boolean>(false);
+
 
   const [duplicateWarning, setDuplicateWarning] = useState<{
     show: boolean;
@@ -217,7 +217,7 @@ export const NewClaim: React.FC = () => {
         setProjectCode(d.invoice_id);
       }
 
-      // Map the primary line item from OCR data
+      // Auto-fill the primary line item from OCR data — all fields
       setItems([
         {
           id: Date.now(),
@@ -225,31 +225,13 @@ export const NewClaim: React.FC = () => {
           category: d.category || reportCategory,
           amount: d.total_amount != null ? String(d.total_amount) : '',
           tax: d.tax_amount != null ? String(d.tax_amount) : '0',
-          desc: `Automated scan from ${merchant}`,
+          desc: d.invoice_id
+            ? `Invoice #${d.invoice_id} — ${merchant}`
+            : `Automated scan from ${merchant}`,
           billable: true,
-          currency: 'INR',
+          currency: d.currency_code || 'INR',
           paymentMode: 'Personal Card',
-          // NEW: Use the extracted invoice_id directly, fallback to state
           projectCode: d.invoice_id || projectCode,
-          merchantName: merchant,
-          ocrValue: d.total_amount != null ? String(d.total_amount) : undefined,
-          ocrConfirmed: true,
-        }
-      ]);
-
-      // Map the primary line item from OCR data
-      setItems([
-        {
-          id: Date.now(),
-          date: d.expense_date || new Date().toISOString().split('T')[0],
-          category: d.category || reportCategory,
-          amount: d.total_amount != null ? String(d.total_amount) : '',
-          tax: d.tax_amount != null ? String(d.tax_amount) : '0',
-          desc: `Automated scan from ${merchant}`,
-          billable: true,
-          currency: 'INR',
-          paymentMode: 'Personal Card',
-          projectCode: projectCode,
           merchantName: merchant,
           ocrValue: d.total_amount != null ? String(d.total_amount) : undefined,
           ocrConfirmed: true,
