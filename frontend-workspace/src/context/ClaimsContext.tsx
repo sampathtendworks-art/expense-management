@@ -43,6 +43,8 @@ export interface Claim {
   tamperingDetected?: boolean;
   bankStatementReconciled?: 'Verified' | 'Unverified' | 'Mismatch';
   anomalyFlagsCount?: number;
+  receipt_url?: string;
+  bank_statement_url?: string;
 }
 
 export interface Policy {
@@ -56,12 +58,12 @@ export interface Category {
   id: string;
   name: string;
   description?: string;
-  allowedRoles: string[];
-  allowedDepartments: string[];
-  allowedEmploymentTypes: string[];
+  allowedRoles?: string[];
+  allowedDepartments?: string[];
+  allowedEmploymentTypes?: string[];
   limits: {
     perTransaction: number;
-    perTransactionUnlimited: boolean;
+    perTransactionUnlimited?: boolean;
     perDay: number;
     perMonth: number;
     perTrip: number;

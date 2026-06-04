@@ -81,7 +81,15 @@ export const NewClaim: React.FC = () => {
       merchantName: '',
     }
   ]);
+
   const [livePolicyResult, setLivePolicyResult] = useState<any>(null);
+  const [ocrData, setOcrData] = useState<any>(null);
+
+  useEffect(() => {
+    if (ocrData || livePolicyResult) {
+      console.log('AI verification details updated:', { ocrData, livePolicyResult });
+    }
+  }, [ocrData, livePolicyResult]);
 
   // --- PRD Specific State (AI OCR / Bank Statement Uploads) ---
   const [receiptFile, setReceiptFile] = useState<string | null>(null);
@@ -97,7 +105,6 @@ export const NewClaim: React.FC = () => {
   const [userGradeTrust, setUserGradeTrust] = useState<'high' | 'normal' | 'low'>('normal');
   const [ocrTamperingDetected, setOcrTamperingDetected] = useState<boolean>(false);
   const [outsideBusinessHours, setOutsideBusinessHours] = useState<boolean>(false);
-  const [ocrData, setOcrData] = useState<any>(null);
 
   const [duplicateWarning, setDuplicateWarning] = useState<{
     show: boolean;
@@ -649,7 +656,7 @@ export const NewClaim: React.FC = () => {
       }
     }
 
-    if (currentRole && catRule.allowedRoles.length > 0 && !catRule.allowedRoles.includes('All')) {
+    if (currentRole && catRule.allowedRoles && catRule.allowedRoles.length > 0 && !catRule.allowedRoles.includes('All')) {
       const isAllowed = catRule.allowedRoles.some(r => r.toLowerCase() === currentRole.toLowerCase());
       if (!isAllowed) {
         return {

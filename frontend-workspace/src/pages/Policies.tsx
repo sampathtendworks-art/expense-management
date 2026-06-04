@@ -82,6 +82,7 @@ export const Policies: React.FC = () => {
 
                 return (
                   <div key={policy.category} className="p-6 hover:bg-slate-50/20 transition-all">
+                    {isEditing ? (
                       /* EDIT MODE */
                       <div className="space-y-4">
                         <div className="flex items-center justify-between">
@@ -148,6 +149,7 @@ export const Policies: React.FC = () => {
                           </button>
                         </div>
                       </div>
+                    ) : (
                       /* VIEW MODE */
                       <div className="flex items-center justify-between flex-wrap gap-4">
                         <div className="space-y-1">
@@ -168,6 +170,7 @@ export const Policies: React.FC = () => {
                           Configure
                         </button>
                       </div>
+                    )}
                   </div>
                 );
               })}
