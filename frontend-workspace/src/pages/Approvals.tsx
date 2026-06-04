@@ -8,7 +8,11 @@ import {
   Undo2,
   TrendingUp,
   Cpu,
-  CheckCircle
+  CheckCircle,
+  Paperclip,
+  Eye,
+  FileText,
+  CreditCard
 } from 'lucide-react';
 
 import { motion, AnimatePresence } from 'framer-motion';
@@ -120,7 +124,6 @@ export const Approvals: React.FC = () => {
     setActionModal({ show: false, type: 'reject', claimId: undefined, reasonText: '' });
   };
 
-  // Get Trust score band description
   const getTrustBand = (score: number) => {
     if (score >= 80) return { label: 'High Trust', bg: 'bg-emerald-50 text-emerald-700 border-emerald-100' };
     if (score >= 55) return { label: 'Moderate', bg: 'bg-blue-50 text-blue-700 border-blue-100' };
@@ -130,8 +133,6 @@ export const Approvals: React.FC = () => {
 
   return (
     <div className="space-y-8 max-w-7xl mx-auto pb-20">
-      
-      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase">Approvals Queue</h2>
@@ -172,10 +173,7 @@ export const Approvals: React.FC = () => {
         </div>
       )}
 
-      {/* Main Grid: 2-column layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        {/* Left 2 Columns: Inbox Queues */}
         <div className="lg:col-span-2 space-y-8">
           
           {/* FAST-TRACK QUEUE BUCKET */}
@@ -199,7 +197,6 @@ export const Approvals: React.FC = () => {
                 </button>
               </div>
 
-              {/* Fast Track Claims list */}
               <div className="space-y-3">
                 {fastTrackClaims.map(claim => (
                   <div
@@ -357,7 +354,6 @@ export const Approvals: React.FC = () => {
           </div>
         </div>
 
-        {/* Right Column: Smart Approval Hints Panel */}
         <div className="space-y-6">
           <div className="bg-slate-900 text-white p-6 border border-slate-800 rounded-3xl shadow-xl space-y-6 flex flex-col justify-between min-h-[500px]">
             <div className="space-y-6">
@@ -367,16 +363,13 @@ export const Approvals: React.FC = () => {
               </h4>
 
               {activeHintClaim ? (
-                <div className="space-y-6">
-                  {/* Claim snapshot details */}
+                <div className="space-y-6"> 
                   <div className="space-y-1">
                     <p className="text-[9px] text-slate-400 font-bold uppercase tracking-wider">Active claim context</p>
                     <p className="text-sm font-black text-white">{activeHintClaim.title}</p>
                     <p className="text-[10px] text-slate-400 font-bold uppercase tracking-tight">{activeHintClaim.id} • {activeHintClaim.totalAmount}</p>
                   </div>
 
-                  <div className="space-y-4">
-                    {/* Compliance Check */}
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-400 font-bold uppercase tracking-wider">Spending Compliance</span>
                       <span className={`px-2 py-0.5 rounded font-black uppercase text-[9px] ${
@@ -388,13 +381,11 @@ export const Approvals: React.FC = () => {
                       </span>
                     </div>
 
-                    {/* Trust Index */}
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-400 font-bold uppercase tracking-wider">Submitter Trust Band</span>
                       <span className="text-white font-black">{activeHintClaim.trustScore || 82}% Score</span>
                     </div>
 
-                    {/* Bank statement match */}
                     <div className="flex justify-between items-center text-xs">
                       <span className="text-slate-400 font-bold uppercase tracking-wider">Bank Reconciliation</span>
                       <span className={`px-2 py-0.5 rounded font-black uppercase text-[9px] ${
@@ -417,8 +408,46 @@ export const Approvals: React.FC = () => {
                         </ul>
                       </div>
                     )}
-                  </div>
 
+                    {/* Evidence & Receipts section */}
+                    {(activeHintClaim.receiptUploaded || activeHintClaim.bankStatementUploaded) && (
+                      <div className="space-y-3 pt-3 border-t border-white/10">
+                        <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+                          <Paperclip size={12} />
+                          Documentation Evidence
+                        </p>
+                        <div className="grid grid-cols-1 gap-2">
+                          {activeHintClaim.receiptUploaded && (
+                            <button 
+                              onClick={() => activeHintClaim.receipt_url && window.open(activeHintClaim.receipt_url, '_blank')}
+                              className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all cursor-pointer text-left group"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg">
+                                  <FileText size={14} />
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-200">Main Receipt</span>
+                              </div>
+                              <Eye size={12} className="text-slate-500 group-hover:text-white" />
+                            </button>
+                          )}
+                          {activeHintClaim.bankStatementUploaded && (
+                            <button 
+                              onClick={() => activeHintClaim.bank_statement_url && window.open(activeHintClaim.bank_statement_url, '_blank')}
+                              className="flex items-center justify-between p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 transition-all cursor-pointer text-left group"
+                            >
+                              <div className="flex items-center gap-2">
+                                <div className="p-1.5 bg-blue-500/20 text-blue-400 rounded-lg">
+                                  <CreditCard size={14} />
+                                </div>
+                                <span className="text-[10px] font-bold text-slate-200">Bank Statement</span>
+                              </div>
+                              <Eye size={12} className="text-slate-500 group-hover:text-white" />
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   {/* Dynamic Plain Text AI recommendations */}
                   <div className="p-4 bg-white/5 border border-white/10 rounded-2xl space-y-2">
                     <p className="text-[9px] font-black text-yellow-400 uppercase tracking-widest flex items-center gap-1">
@@ -459,8 +488,6 @@ export const Approvals: React.FC = () => {
         </div>
 
       </div>
-
-      {/* Action modal for rejection reasons */}
       <AnimatePresence>
         {actionModal.show && (
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">

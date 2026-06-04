@@ -26,14 +26,14 @@ export const Dashboard: React.FC = () => {
 
   const activeUser = roleMeta[currentRole] || roleMeta.employee;
 
-  const totalClaims = claims.length;
+  const totalClaimsCount = claims.length;
   const approved = claims.filter(c => c.status === 'approved').length;
   const pending = claims.filter(c => c.status === 'pending' || c.status === 'submitted').length;
   const flagged = claims.filter(c => c.status === 'flagged').length;
   const paid = claims.filter(c => c.status === 'paid').length;
   const totalAmountNum = claims.reduce((sum, c) => {
     if (c.status === 'draft' || c.status === 'rejected') return sum;
-    const amtStr = c.totalAmount ? c.totalAmount.replace(/[₹,]/g, '') : '0';
+    const amtStr = typeof c.totalAmount === 'string' ? c.totalAmount.replace(/[₹,]/g, '') : c.totalAmount;
     return sum + (parseFloat(amtStr) || 0);
   }, 0);
 
@@ -46,7 +46,7 @@ export const Dashboard: React.FC = () => {
   const categoryMap: { [key: string]: number } = {};
   claims.forEach(c => {
     if (c.status === 'draft' || c.status === 'rejected') return;
-    const amt = parseFloat(c.totalAmount.replace(/[₹,]/g, '') || '0');
+    const amt = parseFloat(typeof c.totalAmount === 'string' ? c.totalAmount.replace(/[₹,]/g, '') : c.totalAmount as any || '0');
     categoryMap[c.category] = (categoryMap[c.category] || 0) + amt;
   });
 
@@ -56,7 +56,7 @@ export const Dashboard: React.FC = () => {
   }));
 
   return (
-    <div className="p-8 space-y-8 max-w-7xl mx-auto pb-20">
+    <div className="space-y-8 max-w-7xl mx-auto pb-20">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-3xl font-black text-primary tracking-tight uppercase">WELCOME BACK, {activeUser.name.split(' ')[0]}</h2>
@@ -70,7 +70,7 @@ export const Dashboard: React.FC = () => {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         <StatCard
           title="All Expense Claims"
-          value={totalClaims.toString()}
+          value={totalClaimsCount.toString()}
           icon={IndianRupee}
           trend={12}
           trendType="up"
@@ -124,8 +124,7 @@ export const Dashboard: React.FC = () => {
         />
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        
-        <div className="lg:col-span-2 bg-white p-6 border border-slate-200 rounded-3xl shadow-premium space-y-6">
+        <div className="lg:col-span-2 bg-[#FAF8F3] p-6 border border-slate-200 rounded-3xl shadow-premium space-y-6">
           <div>
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
               <TrendingUp size={14} />
@@ -151,7 +150,7 @@ export const Dashboard: React.FC = () => {
             )}
           </div>
         </div>
-        <div className="bg-primary text-white p-6 rounded-3xl shadow-premium flex flex-col justify-between space-y-6">
+        <div className="bg-primary text-[#FAF8F3] p-6 rounded-3xl shadow-premium flex flex-col justify-between space-y-6">
           <div className="space-y-4">
             <h4 className="text-xs font-black uppercase tracking-widest text-yellow-400 flex items-center gap-1.5">
               <Zap size={14} className="animate-pulse" />
@@ -162,10 +161,10 @@ export const Dashboard: React.FC = () => {
             </p>
           </div>
 
-          <div className="bg-white/5 border border-white/10 p-6 rounded-2xl space-y-3">
+          <div className="bg-[#FAF8F3]/5 border border-[#FAF8F3]/10 p-6 rounded-2xl space-y-3">
             <div className="flex items-center justify-between">
               <span className="text-[10px] font-black uppercase text-slate-400 tracking-wider">Average Trust Score</span>
-              <span className="text-sm font-black text-white">{avgTrustScore}%</span>
+              <span className="text-sm font-black text-[#FAF8F3]">{avgTrustScore}%</span>
             </div>
             
             <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
@@ -180,10 +179,10 @@ export const Dashboard: React.FC = () => {
             </p>
           </div>
 
-          <div className="p-4 bg-white/5 border border-white/10 rounded-2xl flex items-center gap-3">
+          <div className="p-4 bg-[#FAF8F3]/5 border border-[#FAF8F3]/10 rounded-2xl flex items-center gap-3">
             <ShieldCheck className="text-emerald-400 shrink-0" size={24} />
             <div>
-              <h5 className="text-[10px] font-black uppercase text-white tracking-wider">Policy Enforcement Active</h5>
+              <h5 className="text-[10px] font-black uppercase text-[#FAF8F3] tracking-wider">Policy Enforcement Active</h5>
               <p className="text-[9px] text-slate-400 mt-0.5 font-bold">Category limits mapped to grade hierarchies.</p>
             </div>
           </div>

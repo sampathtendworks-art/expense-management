@@ -38,6 +38,8 @@ class OCRResponseData(BaseModel):
     currency_code: str
     ocr_confidence: float
     tampering_detected: bool
+    invoice_id: str | None = None
+    category: str | None = None
 
 class OCRResponse(BaseModel):
     status: str
@@ -144,6 +146,8 @@ def _gemini_extract_from_image(image_bytes: bytes, mime_type: str) -> dict[str, 
         '  "total_amount": number,\n'
         '  "tax_amount": number,\n'
         '  "currency_code": "INR" | "USD" | "EUR" | "GBP" | "AED" | "SGD" | any 3-letter ISO code,\n'
+        '  "invoice_id": string | null,\n'
+        '  "category": "Local Travel" | "Meals & Entertainment" | "Office Supplies" | "Software" | "Fuel"| "Internet/Broadband"| null (choose closest match),\n'
         '  "ocr_confidence": number between 0 and 1,\n'
         '  "tampering_detected": true|false\n'
         "}\n"
@@ -180,6 +184,8 @@ def _gemini_extract_from_image(image_bytes: bytes, mime_type: str) -> dict[str, 
     return {
         "merchant_name": str(data.get("merchant_name", "")).strip() or "Unknown Merchant",
         "expense_date": _as_date_iso(data.get("expense_date", "")),
+        "invoice_id": data.get("invoice_id"),
+        "category": data.get("category"),
         "total_amount": _as_float(data.get("total_amount", 0.0)),
         "tax_amount": _as_float(data.get("tax_amount", 0.0)),
         "currency_code": (str(data.get("currency_code", "INR")).strip() or "INR")[:3].upper(),
@@ -223,6 +229,8 @@ async def parse_receipt(file: UploadFile = File(...)):
         "extracted_data": {
             "merchant_name": data["merchant_name"],
             "expense_date": data["expense_date"],
+            "invoice_id": data.get("invoice_id"),
+            "category": data.get("category"),
             "total_amount": float(data["total_amount"]),
             "tax_amount": float(data.get("tax_amount", 0.0)),
             "currency_code": data["currency_code"],
