@@ -618,7 +618,7 @@ export const NewClaim: React.FC = () => {
       }
     }
 
-    if (currentRole && catRule.allowedRoles.length > 0 && !catRule.allowedRoles.includes('All')) {
+    if (currentRole && catRule.allowedRoles && catRule.allowedRoles.length > 0 && !catRule.allowedRoles.includes('All')) {
       const isAllowed = catRule.allowedRoles.some(r => r.toLowerCase() === currentRole.toLowerCase());
       if (!isAllowed) {
         return {
