@@ -218,13 +218,17 @@ export const NewClaim: React.FC = () => {
       }
 
       // Auto-fill the primary line item from OCR data — all fields
+      const taxVal = d.tax_amount != null ? d.tax_amount : 0;
+      const totalVal = d.total_amount != null ? d.total_amount : 0;
+      const preTaxVal = Math.max(0, totalVal - taxVal);
+
       setItems([
         {
           id: Date.now(),
           date: d.expense_date || new Date().toISOString().split('T')[0],
           category: d.category || reportCategory,
-          amount: d.total_amount != null ? String(d.total_amount) : '',
-          tax: d.tax_amount != null ? String(d.tax_amount) : '0',
+          amount: String(preTaxVal),
+          tax: String(taxVal),
           desc: d.invoice_id
             ? `Invoice #${d.invoice_id} — ${merchant}`
             : `Automated scan from ${merchant}`,
@@ -296,16 +300,18 @@ export const NewClaim: React.FC = () => {
         const extracted = data.extracted_data;
         const merchant = extracted.merchant_name || 'Unknown Merchant';
         const expenseDate = extracted.expense_date || new Date().toISOString().split('T')[0];
-        const totalAmount = (extracted.total_amount ?? extracted.amount ?? '').toString();
-        const taxAmount = (extracted.tax_amount ?? extracted.tax ?? '').toString();
+        const taxVal = extracted.tax_amount != null ? parseFloat(extracted.tax_amount) : (extracted.tax != null ? parseFloat(extracted.tax) : 0);
+        const totalVal = extracted.total_amount != null ? parseFloat(extracted.total_amount) : (extracted.amount != null ? parseFloat(extracted.amount) : 0);
+        const preTaxVal = Math.max(0, totalVal - taxVal);
+        const totalAmount = totalVal.toString();
         const category = extracted.category || categories[0]?.name || 'Local Travel';
 
         setItems(prev => prev.map((item, i) => i === idx ? {
           ...item,
           date: expenseDate,
           category: category,
-          amount: totalAmount,
-          tax: taxAmount,
+          amount: preTaxVal.toString(),
+          tax: taxVal.toString(),
           merchantName: merchant,
           desc: `Automated scan from ${merchant}`,
           ocrValue: totalAmount,
@@ -458,7 +464,7 @@ export const NewClaim: React.FC = () => {
         expense_date: item.date || new Date().toISOString().split('T')[0],
         merchant_name: item.merchantName || item.desc?.replace('Automated scan from ', '') || 'Merchant',
         category: item.category,
-        amount: item.amount,
+        amount: String((parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0)),
         currency_code: item.currency || 'INR',
         payment_mode: item.paymentMode ? item.paymentMode.toLowerCase() : 'cash',
         project_cost_centre: item.projectCode || projectCode || 'GEN-CORP',
@@ -525,7 +531,7 @@ export const NewClaim: React.FC = () => {
         expense_date: item.date || new Date().toISOString().split('T')[0],
         merchant_name: item.merchantName || item.desc?.replace('Automated scan from ', '') || 'Merchant',
         category: item.category,
-        amount: item.amount,
+        amount: String((parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0)),
         currency_code: item.currency || 'INR',
         payment_mode: item.paymentMode ? item.paymentMode.toLowerCase() : 'cash',
         project_cost_centre: item.projectCode || projectCode || 'DRAFT',
@@ -594,7 +600,7 @@ export const NewClaim: React.FC = () => {
     if (!catRule) {
       const policy = policies.find(p => p.category === item.category);
       if (!policy) return { status: 'pass', message: 'Within allowed limits.' };
-      const amountVal2 = parseFloat(item.amount);
+      const amountVal2 = (parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0);
       if (amountVal2 > policy.limit) {
         return {
           status: 'error',
@@ -604,7 +610,7 @@ export const NewClaim: React.FC = () => {
       return { status: 'pass', message: 'Within allowed limits.' };
     }
 
-    const amountVal = parseFloat(item.amount);
+    const amountVal = (parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0);
 
     if (catRule.limits.perTransaction > 0 && amountVal > catRule.limits.perTransaction) {
       return {
@@ -1065,7 +1071,7 @@ export const NewClaim: React.FC = () => {
                 <div className="space-y-6">
                   {items.map((item, idx) => {
                     const policyCheck = evaluateItemPolicy(item);
-                    const isOcrModified = item.ocrValue && parseFloat(item.amount) > parseFloat(item.ocrValue) * 1.5;
+                    const isOcrModified = item.ocrValue && ((parseFloat(item.amount) || 0) + (parseFloat(item.tax) || 0)) > parseFloat(item.ocrValue) * 1.5;
 
                     return (
                       <motion.div
