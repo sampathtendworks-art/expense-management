@@ -2,7 +2,6 @@ import React from 'react';
 import { Bell, Settings, Plus } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useClaims } from '../../context/ClaimsContext';
-
 export const Navbar: React.FC = () => {
   const { currentRole, setRole, notifications } = useClaims();
   const navigate = useNavigate();
@@ -61,13 +60,15 @@ export const Navbar: React.FC = () => {
         
         <div className="h-8 w-[1px] bg-slate-200 mx-2"></div>
         
-        <Link 
-          to="/new-claim"
-          className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-800 transition-all shadow-lg shadow-black/10 active:scale-95"
-        >
-          <Plus size={18} />
-          New Claim
-        </Link>
+        {currentRole === 'employee' && (
+          <Link 
+            to="/new-claim"
+            className="flex items-center gap-2 bg-black text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-slate-800 transition-all shadow-lg shadow-black/10 active:scale-95"
+          >
+            <Plus size={18} />
+            New Claim
+          </Link>
+        )}
         
         <div className="flex items-center gap-3 pl-4">
           <div className="text-right">

@@ -8,6 +8,8 @@ import { Finance } from './pages/Finance';
 import { Policies } from './pages/Policies';
 import { Reports } from './pages/Reports';
 import { Notifications } from './pages/Notifications';
+import { Categories } from './pages/Categories';
+import { AddExpense } from './pages/AddExpense';
 import { ClaimsProvider } from './context/ClaimsContext';
 
 function App() {
@@ -19,10 +21,12 @@ function App() {
             <Route path="/" element={<Navigate to="/dashboard" replace />} />
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/new-claim" element={<NewClaim />} />
+            <Route path="/add-expense" element={<AddExpense />} />
             <Route path="/my-claims" element={<MyClaims />} />
             <Route path="/approvals" element={<Approvals />} />
             <Route path="/reimbursements" element={<Finance />} />
             <Route path="/policies" element={<Policies />} />
+            <Route path="/categories" element={<Categories />} />
             <Route path="/reports" element={<Reports />} />
             <Route path="/notifications" element={<Notifications />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />

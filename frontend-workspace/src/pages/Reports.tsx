@@ -34,8 +34,6 @@ import {
   Legend,
 } from 'recharts';
 
-// ─── Helpers ────────────────────────────────────────────────────────────────
-
 function trustBand(score?: number): 'High Trust' | 'Moderate' | 'Requires Review' | 'Critical' {
   if (!score) return 'Critical';
   if (score >= 80) return 'High Trust';
@@ -51,13 +49,10 @@ const BAND_COLORS: Record<string, string> = {
   'Critical': '#ef4444',
 };
 
-// ─── Main Component ──────────────────────────────────────────────────────────
-
 export const Reports: React.FC = () => {
   const { claims, userTrustScore } = useClaims();
   const [showAllRows, setShowAllRows] = useState(false);
 
-  // ── Core KPIs ──────────────────────────────────────────────────────────────
   const approvedClaims = claims.filter(
     (c) => c.status !== 'draft' && c.status !== 'rejected'
   );
@@ -73,7 +68,6 @@ export const Reports: React.FC = () => {
   const violationRate =
     claims.length > 0 ? (flaggedCount / claims.length) * 100 : 0;
 
-  // ── AI KPIs ────────────────────────────────────────────────────────────────
   const fastTrackCount = claims.filter((c) => c.isFastTrackEligible).length;
   const fastTrackRate =
     claims.length > 0 ? (fastTrackCount / claims.length) * 100 : 0;
@@ -86,14 +80,13 @@ export const Reports: React.FC = () => {
   const avgOCR =
     claimsWithOCR.length > 0
       ? claimsWithOCR.reduce((s, c) => s + (c.ocrConfidence ?? 0), 0) /
-        claimsWithOCR.length
+      claimsWithOCR.length
       : 0;
 
   const reconMismatch = claims.filter(
     (c) => c.bankStatementReconciled === 'Mismatch'
   ).length;
 
-  // ── Trust Score Distribution (band breakdown) ──────────────────────────────
   const bandCounts: Record<string, number> = {
     'High Trust': 0,
     Moderate: 0,
@@ -109,7 +102,6 @@ export const Reports: React.FC = () => {
     color: BAND_COLORS[band],
   }));
 
-  // ── Category Spend ──────────────────────────────────────────────────────────
   const categoryMap: Record<string, number> = {};
   approvedClaims.forEach((c) => {
     const amt = parseFloat(c.totalAmount.replace(/[₹,]/g, '') || '0');
@@ -120,7 +112,6 @@ export const Reports: React.FC = () => {
     amount: categoryMap[key],
   }));
 
-  // ── Expenditure Trend (mock 6-month distribution) ──────────────────────────
   const trendData = [
     { name: 'Jan', amount: Math.round(totalSpend * 0.12) },
     { name: 'Feb', amount: Math.round(totalSpend * 0.18) },
@@ -130,14 +121,12 @@ export const Reports: React.FC = () => {
     { name: 'Jun', amount: Math.round(totalSpend * 0.1) },
   ];
 
-  // ── Routing Breakdown ──────────────────────────────────────────────────────
   const pathData = [
     { name: 'Path A · Fast-Track', value: claims.filter((c) => c.isFastTrackEligible).length, color: '#10b981' },
     { name: 'Path B · Manager', value: claims.filter((c) => !c.isFastTrackEligible && c.riskCategory !== 'high').length, color: '#6366f1' },
     { name: 'Path C · Finance', value: claims.filter((c) => c.riskCategory === 'high').length, color: '#ef4444' },
   ];
 
-  // ── CSV Export ─────────────────────────────────────────────────────────────
   const handleExportCSV = () => {
     const headers = [
       'Claim ID', 'Title', 'Category', 'Amount', 'Status', 'Date',
@@ -182,12 +171,10 @@ export const Reports: React.FC = () => {
   const displayedClaims = showAllRows ? claims : claims.slice(0, 10);
 
   return (
-    <div className="space-y-10 max-w-7xl mx-auto pb-24">
-
-      {/* ── Header ── */}
+    <div className="space-y-8 max-w-7xl mx-auto pb-20">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-3xl font-black text-slate-900 tracking-tight uppercase">
+          <h2 className="text-3xl font-black text-primary tracking-tight uppercase">
             Spend Analytics &amp; Reports
           </h2>
           <p className="text-slate-500 mt-2 font-medium">
@@ -196,52 +183,46 @@ export const Reports: React.FC = () => {
         </div>
         <button
           onClick={handleExportCSV}
-          className="flex items-center gap-2 px-5 py-3 bg-black text-white rounded-xl text-xs font-black hover:bg-slate-800 transition-all shadow-xl shadow-black/10 uppercase tracking-widest cursor-pointer"
+          className="flex items-center gap-2 px-5 py-3 bg-accent text-[#FAF8F3] rounded-xl text-xs font-black hover:bg-emerald-600 transition-all shadow-xl shadow-emerald-600/10 uppercase tracking-widest cursor-pointer"
         >
           <Download size={18} />
           Export Full Audit Ledger
         </button>
       </div>
-
-      {/* ── Spend KPI Row ── */}
-      <div>
-        <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-1.5">
-          <TrendingUp size={12} /> Spend Overview
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
-          <StatCard
-            label="Total Approved Spend"
-            value={`₹${totalSpend.toLocaleString('en-IN')}`}
-            desc="Approved + disbursed claims"
-            color="indigo"
-            icon={<TrendingUp size={16} />}
-          />
-          <StatCard
-            label="Average Claim Value"
-            value={`₹${Math.round(averageClaim).toLocaleString('en-IN')}`}
-            desc="Mean value across all claims"
-            color="slate"
-            icon={<Layers size={16} />}
-          />
-          <StatCard
-            label="Policy Exception Rate"
-            value={`${Math.round(violationRate)}%`}
-            desc={`${flaggedCount} claim${flaggedCount !== 1 ? 's' : ''} triggered AI warnings`}
-            color="rose"
-            icon={<ShieldAlert size={16} />}
-            pulse
-          />
-          <StatCard
-            label="Avg Approval Turnaround"
-            value="2.4 Hours"
-            desc="Pending → Approved cycle"
-            color="emerald"
-            icon={<Clock size={16} />}
-          />
-        </div>
+      <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-1.5">
+        <TrendingUp size={12} /> Spend Overview
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-5">
+        <StatCard
+          label="Total Approved Spend"
+          value={`₹${totalSpend.toLocaleString('en-IN')}`}
+          desc="Approved + disbursed claims"
+          color="indigo"
+          icon={<TrendingUp size={16} />}
+        />
+        <StatCard
+          label="Average Claim Value"
+          value={`₹${Math.round(averageClaim).toLocaleString('en-IN')}`}
+          desc="Mean value across all claims"
+          color="slate"
+          icon={<Layers size={16} />}
+        />
+        <StatCard
+          label="Policy Exception Rate"
+          value={`${Math.round(violationRate)}%`}
+          desc={`${flaggedCount} claim${flaggedCount !== 1 ? 's' : ''} triggered AI warnings`}
+          color="rose"
+          icon={<ShieldAlert size={16} />}
+          pulse
+        />
+        <StatCard
+          label="Avg Approval Turnaround"
+          value="2.4 Hours"
+          desc="Pending → Approved cycle"
+          color="emerald"
+          icon={<Clock size={16} />}
+        />
       </div>
-
-      {/* ── AI Intelligence KPI Row ── */}
       <div>
         <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-1.5">
           <Brain size={12} /> AI Intelligence Summary
@@ -279,14 +260,12 @@ export const Reports: React.FC = () => {
           />
         </div>
       </div>
-
-      {/* ── Trust Score Card ── */}
-      <div className="bg-gradient-to-br from-slate-900 to-slate-800 rounded-3xl p-6 flex flex-col md:flex-row items-center gap-8 shadow-2xl shadow-slate-900/30">
+      <div className="bg-primary text-[#FAF8F3] rounded-3xl p-6 flex flex-col md:flex-row items-center gap-8 shadow-premium">
         <div className="flex-1 space-y-2">
           <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
             <Users size={12} /> Your Current Trust Score
           </p>
-          <div className="text-6xl font-black text-white tracking-tight">{userTrustScore}</div>
+          <div className="text-6xl font-black text-[#FAF8F3] tracking-tight">{userTrustScore}</div>
           <div
             className="inline-flex px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest mt-1"
             style={{
@@ -300,7 +279,6 @@ export const Reports: React.FC = () => {
             Score affects AI routing path, fast-track eligibility, and approval friction.
           </p>
         </div>
-        {/* Score bar */}
         <div className="flex-1 w-full">
           <div className="relative w-full h-5 rounded-full bg-slate-700 overflow-hidden">
             <div
@@ -320,96 +298,84 @@ export const Reports: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* ── Charts Row 1 ── */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-        {/* Expenditure Trend */}
-        <div className="bg-white p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
-          <div>
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-              <Calendar size={13} /> Expenditure Trend (6 Months)
-            </h3>
-            <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Monthly aggregate</p>
-          </div>
-          <div className="h-64 w-full">
-            <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="colorAmt" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
-                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
+      <div className="bg-[#FAF8F3] p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
+        <div>
+          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+            <Calendar size={13} /> Expenditure Trend (6 Months)
+          </h3>
+          <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Monthly aggregate</p>
+        </div>
+        <div className="h-64 w-full">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+            <AreaChart data={trendData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+              <defs>
+                <linearGradient id="colorAmt" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                  <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
+              <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
+              <Tooltip
+                formatter={(value) => [
+                  typeof value === 'number' ? `₹${value.toLocaleString('en-IN')}` : '',
+                  'Spend',
+                ]}
+              />
+              <Area
+                type="monotone"
+                dataKey="amount"
+                stroke="#6366f1"
+                fillOpacity={1}
+                fill="url(#colorAmt)"
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+      <div className="bg-[#FAF8F3] p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
+        <div>
+          <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
+            <BarChart3 size={13} /> Spend By Category
+          </h3>
+          <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Approved spend allocation</p>
+        </div>
+        <div className="w-full min-h-[300px]">
+          {categoryData.length > 0 ? (
+            <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
+              <BarChart data={categoryData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                <XAxis dataKey="name" stroke="#94a3b8" fontSize={10} tickLine={false} />
+                <XAxis dataKey="name" stroke="#94a3b8" fontSize={8} tickLine={false} />
                 <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
                 <Tooltip
                   formatter={(value) => [
                     typeof value === 'number' ? `₹${value.toLocaleString('en-IN')}` : '',
-                    'Spend',
+                    'Amount',
                   ]}
                 />
-                <Area
-                  type="monotone"
-                  dataKey="amount"
-                  stroke="#6366f1"
-                  fillOpacity={1}
-                  fill="url(#colorAmt)"
-                  strokeWidth={2}
-                />
-              </AreaChart>
+                <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
+              </BarChart>
             </ResponsiveContainer>
-          </div>
-        </div>
-
-        {/* Category Breakdown */}
-        <div className="bg-white p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
-          <div>
-            <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
-              <BarChart3 size={13} /> Spend By Category
-            </h3>
-            <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Approved spend allocation</p>
-          </div>
-          <div className="h-64 w-full">
-            {categoryData.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={categoryData} margin={{ top: 10, right: 10, left: -15, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
-                  <XAxis dataKey="name" stroke="#94a3b8" fontSize={8} tickLine={false} />
-                  <YAxis stroke="#94a3b8" fontSize={10} tickLine={false} />
-                  <Tooltip
-                    formatter={(value) => [
-                      typeof value === 'number' ? `₹${value.toLocaleString('en-IN')}` : '',
-                      'Amount',
-                    ]}
-                  />
-                  <Bar dataKey="amount" fill="#6366f1" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="h-full flex items-center justify-center text-xs font-bold text-slate-400 italic">
-                No approved expenditure data available.
-              </div>
-            )}
-          </div>
+          ) : (
+            <div className="h-full flex items-center justify-center text-xs font-bold text-slate-400 italic">
+              No approved expenditure data available.
+            </div>
+          )}
         </div>
       </div>
-
-      {/* ── Charts Row 2: Trust Distribution + AI Routing ── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-        {/* Trust Score Distribution */}
-        <div className="bg-white p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
+        <div className="bg-[#FAF8F3] p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
           <div>
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
               <Users size={13} /> Trust Score Distribution
             </h3>
             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Band breakdown across all claims</p>
           </div>
-          <div className="h-64 w-full">
+          <div className="w-full min-h-[300px]">
             {claims.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <BarChart data={trustDistData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                   <XAxis dataKey="name" stroke="#94a3b8" fontSize={9} tickLine={false} />
@@ -428,7 +394,6 @@ export const Reports: React.FC = () => {
               </div>
             )}
           </div>
-          {/* Band legend */}
           <div className="flex flex-wrap gap-3">
             {Object.entries(BAND_COLORS).map(([band, color]) => (
               <div key={band} className="flex items-center gap-1.5">
@@ -438,18 +403,16 @@ export const Reports: React.FC = () => {
             ))}
           </div>
         </div>
-
-        {/* AI Routing Breakdown Donut */}
-        <div className="bg-white p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
+        <div className="bg-[#FAF8F3] p-6 border border-slate-100 rounded-3xl shadow-sm space-y-5">
           <div>
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
               <Zap size={13} /> AI Routing Path Breakdown
             </h3>
             <p className="text-[10px] uppercase font-bold text-slate-400 mt-1">Fast-Track vs Manager vs Finance</p>
           </div>
-          <div className="h-64 w-full">
+          <div className="w-full min-h-[300px]">
             {claims.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
+              <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0}>
                 <PieChart>
                   <Pie
                     data={pathData}
@@ -482,10 +445,8 @@ export const Reports: React.FC = () => {
           </div>
         </div>
       </div>
-
-      {/* ── Historical Audit Ledger ── */}
       <div className="premium-card overflow-hidden">
-        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-white">
+        <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-[#FAF8F3]">
           <div>
             <h3 className="text-xs font-black text-slate-400 uppercase tracking-widest">
               Historical Expense Ledger
@@ -496,7 +457,7 @@ export const Reports: React.FC = () => {
           </div>
           <button
             onClick={handleExportCSV}
-            className="flex items-center gap-1.5 text-[10px] font-black text-slate-600 hover:text-black uppercase tracking-wider transition-colors cursor-pointer"
+            className="flex items-center gap-1.5 text-[10px] font-black text-slate-600 hover:text-slate-900 uppercase tracking-wider transition-colors cursor-pointer"
           >
             <FileSpreadsheet size={14} />
             Export CSV
@@ -520,7 +481,7 @@ export const Reports: React.FC = () => {
                 ))}
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50 bg-white">
+            <tbody className="divide-y divide-slate-50 bg-[#FAF8F3]">
               {displayedClaims.map((claim) => (
                 <tr
                   key={claim.id}
@@ -533,24 +494,22 @@ export const Reports: React.FC = () => {
                   <td className="px-4 py-3.5 font-black text-slate-900 text-[10px]">{claim.totalAmount}</td>
                   <td className="px-4 py-3.5">
                     <span
-                      className={`inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${
-                        claim.status === 'paid'
+                      className={`inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${claim.status === 'paid'
                           ? 'bg-teal-50 text-teal-700'
                           : claim.status === 'approved'
-                          ? 'bg-emerald-50 text-emerald-700'
-                          : claim.status === 'flagged'
-                          ? 'bg-rose-50 text-rose-700 animate-pulse'
-                          : claim.status === 'rejected'
-                          ? 'bg-rose-50 text-rose-700'
-                          : claim.status === 'submitted'
-                          ? 'bg-indigo-50 text-indigo-700'
-                          : 'bg-slate-100 text-slate-600'
-                      }`}
+                            ? 'bg-emerald-50 text-emerald-700'
+                            : claim.status === 'flagged'
+                              ? 'bg-rose-50 text-rose-700 animate-pulse'
+                              : claim.status === 'rejected'
+                                ? 'bg-rose-50 text-rose-700'
+                                : claim.status === 'submitted'
+                                  ? 'bg-indigo-50 text-indigo-700'
+                                  : 'bg-slate-100 text-slate-600'
+                        }`}
                     >
                       {claim.status}
                     </span>
                   </td>
-                  {/* Trust Score */}
                   <td className="px-4 py-3.5">
                     {claim.trustScore != null ? (
                       <span
@@ -566,17 +525,15 @@ export const Reports: React.FC = () => {
                       <span className="text-[9px] text-slate-400">—</span>
                     )}
                   </td>
-                  {/* Risk */}
                   <td className="px-4 py-3.5">
                     {claim.riskCategory ? (
                       <span
-                        className={`inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${
-                          claim.riskCategory === 'high'
+                        className={`inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${claim.riskCategory === 'high'
                             ? 'bg-rose-50 text-rose-700'
                             : claim.riskCategory === 'medium'
-                            ? 'bg-amber-50 text-amber-700'
-                            : 'bg-emerald-50 text-emerald-700'
-                        }`}
+                              ? 'bg-amber-50 text-amber-700'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
                       >
                         {claim.riskCategory}
                       </span>
@@ -584,21 +541,18 @@ export const Reports: React.FC = () => {
                       <span className="text-[9px] text-slate-400">—</span>
                     )}
                   </td>
-                  {/* OCR */}
                   <td className="px-4 py-3.5 text-[9px] font-black text-slate-500">
                     {claim.ocrConfidence != null ? `${claim.ocrConfidence}%` : '—'}
                   </td>
-                  {/* Bank Recon */}
                   <td className="px-4 py-3.5">
                     {claim.bankStatementReconciled ? (
                       <span
-                        className={`inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${
-                          claim.bankStatementReconciled === 'Verified'
+                        className={`inline-flex px-2 py-0.5 rounded text-[8px] font-black uppercase ${claim.bankStatementReconciled === 'Verified'
                             ? 'bg-emerald-50 text-emerald-700'
                             : claim.bankStatementReconciled === 'Mismatch'
-                            ? 'bg-rose-50 text-rose-700'
-                            : 'bg-slate-100 text-slate-500'
-                        }`}
+                              ? 'bg-rose-50 text-rose-700'
+                              : 'bg-slate-100 text-slate-500'
+                          }`}
                       >
                         {claim.bankStatementReconciled}
                       </span>
@@ -606,7 +560,6 @@ export const Reports: React.FC = () => {
                       <span className="text-[9px] text-slate-400">—</span>
                     )}
                   </td>
-                  {/* Tampering */}
                   <td className="px-4 py-3.5">
                     {claim.tamperingDetected ? (
                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-rose-50 text-rose-700 text-[8px] font-black uppercase animate-pulse">
@@ -628,13 +581,11 @@ export const Reports: React.FC = () => {
             </tbody>
           </table>
         </div>
-
-        {/* Show More / Less toggle */}
         {claims.length > 10 && (
-          <div className="border-t border-slate-100 p-4 flex justify-center bg-white">
+          <div className="border-t border-slate-100 p-4 flex justify-center bg-[#FAF8F3]">
             <button
               onClick={() => setShowAllRows((v) => !v)}
-              className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 hover:text-black uppercase tracking-widest transition-colors cursor-pointer"
+              className="flex items-center gap-1.5 text-[10px] font-black text-slate-500 hover:text-slate-900 uppercase tracking-widest transition-colors cursor-pointer"
             >
               {showAllRows ? (
                 <>
@@ -649,12 +600,9 @@ export const Reports: React.FC = () => {
           </div>
         )}
       </div>
-
     </div>
   );
 };
-
-// ─── Sub-component ───────────────────────────────────────────────────────────
 
 interface StatCardProps {
   label: string;
@@ -666,17 +614,16 @@ interface StatCardProps {
 }
 
 const StatCard: React.FC<StatCardProps> = ({ label, value, desc, color, icon, pulse }) => (
-  <div className="bg-white p-6 border border-slate-100 rounded-3xl shadow-sm space-y-4">
+  <div className="bg-[#FAF8F3] p-6 border border-slate-100 rounded-3xl shadow-sm space-y-4">
     <div
-      className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-        color === 'indigo'
+      className={`w-10 h-10 rounded-xl flex items-center justify-center ${color === 'indigo'
           ? 'bg-indigo-50 text-indigo-600'
           : color === 'rose'
-          ? 'bg-rose-50 text-rose-600'
-          : color === 'emerald'
-          ? 'bg-emerald-50 text-emerald-600'
-          : 'bg-slate-50 text-slate-500'
-      } ${pulse ? 'animate-pulse' : ''}`}
+            ? 'bg-rose-50 text-rose-600'
+            : color === 'emerald'
+              ? 'bg-emerald-50 text-emerald-600'
+              : 'bg-slate-50 text-slate-500'
+        } ${pulse ? 'animate-pulse' : ''}`}
     >
       {icon}
     </div>

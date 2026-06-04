@@ -14,9 +14,11 @@ import {
   ChevronRight,
   MessageSquare,
   AlertTriangle,
-  Sparkles
+  Sparkles,
+  Eye
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { useClaims } from '../../context/ClaimsContext';
 
 // --- Types & Props ---
@@ -28,9 +30,9 @@ interface ClaimDetailDrawerProps {
 }
 
 
-
 export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, onClose, claim }) => {
   const { addComment, resubmitClaim, currentRole } = useClaims();
+  const navigate = useNavigate();
   
   // Interaction State
   const [commentText, setCommentText] = useState('');
@@ -109,6 +111,14 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                 <button className="p-3 text-slate-500 hover:bg-slate-100 rounded-xl transition-all border border-slate-200 shadow-sm">
                   <Download size={18} />
                 </button>
+                {claim.status === 'draft' && (
+                  <button 
+                    onClick={() => navigate('/add-expense', { state: { draftClaim: claim } })}
+                    className="bg-[#1E3A5F] text-white px-6 py-3 rounded-xl text-xs font-black hover:bg-slate-800 transition-all shadow-xl shadow-[#1E3A5F]/10 uppercase tracking-widest"
+                  >
+                    Rewrite Draft
+                  </button>
+                )}
                 {(claim.status === 'rejected' || claim.status === 'sent_back') && !isEditing && (
                   <button 
                     onClick={startEditMode}
@@ -122,7 +132,6 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
 
             <div className="flex-1 p-8 space-y-12">
               {isEditing ? (
-                /* RESUBMIT EDIT FORM */
                 <div className="space-y-6 bg-slate-50 p-6 rounded-3xl border border-slate-100 animate-in fade-in duration-200">
                   <div className="flex items-center gap-2 pb-4 border-b border-slate-200">
                     <Undo2 className="text-black animate-bounce" size={20} />
@@ -183,7 +192,6 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                     <SummaryCard label="Submission Date" value={claim.date} />
                   </div>
 
-                  {/* Smart Approval Hints inside Drawer */}
                   {(currentRole === 'manager' || currentRole === 'finance') && (
                     <div className="p-5 bg-slate-900 text-white rounded-3xl space-y-4 shadow-lg border border-slate-800">
                       <div className="flex items-center gap-2 text-yellow-400">
@@ -225,7 +233,17 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                     <div className="space-y-4">
                       {claim.items && claim.items.length > 0 ? (
                         claim.items.map((item: any, idx: number) => (
-                          <ItemRow key={idx} {...item} />
+                          <ItemRow 
+                            key={idx} 
+                            date={item.expense_date}
+                            category={item.category}
+                            desc={item.description || item.merchant_name}
+                            amount={`₹${parseFloat(item.amount).toLocaleString('en-IN')}`}
+                            receiptUrl={item.receipt_url}
+                            bankUrl={item.bank_url}
+                            receiptFile={item.receipt_file}
+                            bankFile={item.bank_file}
+                          />
                         ))
                       ) : (
                         <>
@@ -238,8 +256,8 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                   <div className="space-y-6">
                     <SectionHeader icon={Paperclip} label="Evidence & Receipts" />
                     <div className="grid grid-cols-2 gap-4">
-                      {claim.receiptUploaded && <ReceiptCard name="indigo_boarding_pass.pdf" size="1.2 MB" />}
-                      {claim.bankStatementUploaded && <ReceiptCard name="bank_statement_extract.pdf" size="740 KB" />}
+                      {claim.receiptUploaded && <ReceiptCard name="receipt_document.pdf" size="1.2 MB" url={claim.receipt_url} />}
+                      {claim.bankStatementUploaded && <ReceiptCard name="bank_statement_extract.pdf" size="740 KB" url={claim.bank_statement_url} />}
                       {!claim.receiptUploaded && !claim.bankStatementUploaded && (
                         <p className="text-xs font-bold text-slate-400 italic col-span-2">No evidence documents uploaded.</p>
                       )}
@@ -247,7 +265,6 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                   </div>
 
                   <div className="space-y-8">
-                    <SectionHeader icon={History} label="Timeline & Dispute Thread" />
                     
                     {(claim.status === 'rejected' || claim.status === 'sent_back') && (
                       <div className="p-4 bg-indigo-50 border border-indigo-100 rounded-2xl text-[11px] text-indigo-900 font-bold leading-relaxed animate-pulse">
@@ -255,7 +272,6 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                       </div>
                     )}
 
-                    <div className="relative space-y-10 pl-5 border-l-2 border-slate-100 ml-2.5">
                       {/* Submitter's original action */}
                       <TimelineStep 
                         name="Marcus Richardson" 
@@ -285,7 +301,6 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                           status="pending"
                         />
                       )}
-                    </div>
 
                     <form onSubmit={handleAddComment} className="pt-4 border-t border-slate-100 space-y-3">
                       <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-1.5">
@@ -312,7 +327,6 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                 </>
               )}
             </div>
-
             <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex gap-4">
               <button 
                 onClick={onClose}
@@ -352,9 +366,9 @@ const SectionHeader = ({ icon: Icon, label, count }: { icon: any, label: string,
   </div>
 );
 
-const ItemRow = ({ date, category, desc, amount, tax }: any) => (
+const ItemRow = ({ date, category, desc, amount, tax, receiptUrl, bankUrl, receiptFile, bankFile }: any) => (
   <div className="p-5 bg-white border border-slate-100 rounded-2xl hover:border-black/10 transition-all group shadow-sm hover:shadow-md">
-    <div className="flex justify-between items-start">
+    <div className="flex justify-between items-start mb-4">
       <div className="flex gap-4">
         <div className="w-12 h-12 rounded-xl bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-black group-hover:text-white transition-all shadow-inner">
           <Calendar size={20} />
@@ -369,14 +383,48 @@ const ItemRow = ({ date, category, desc, amount, tax }: any) => (
       </div>
       <div className="text-right">
         <p className="text-sm font-black text-slate-900">{amount}</p>
-        <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase tracking-tight">GST {tax}</p>
+        {tax && <p className="text-[9px] text-slate-400 font-bold mt-1 uppercase tracking-tight">GST {tax}</p>}
       </div>
+    </div>
+
+    {/* Per-item Evidence Links */}
+    <div className="grid grid-cols-2 gap-3 pt-3 border-t border-slate-50">
+      {receiptFile || receiptUrl ? (
+        <button 
+          onClick={() => receiptUrl && window.open(receiptUrl, '_blank')}
+          className="flex items-center gap-2 px-3 py-2 bg-emerald-50 text-emerald-700 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-emerald-100 transition-all cursor-pointer"
+        >
+          <Eye size={12} />
+          View Receipt
+        </button>
+      ) : (
+        <div className="px-3 py-2 bg-slate-50 text-slate-400 rounded-xl text-[9px] font-black uppercase tracking-widest border border-dashed border-slate-200">
+          No Receipt
+        </div>
+      )}
+
+      {bankFile || bankUrl ? (
+        <button 
+          onClick={() => bankUrl && window.open(bankUrl, '_blank')}
+          className="flex items-center gap-2 px-3 py-2 bg-blue-50 text-blue-700 rounded-xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-100 transition-all cursor-pointer"
+        >
+          <Eye size={12} />
+          View Statement
+        </button>
+      ) : (
+        <div className="px-3 py-2 bg-slate-50 text-slate-400 rounded-xl text-[9px] font-black uppercase tracking-widest border border-dashed border-slate-200">
+          No Statement
+        </div>
+      )}
     </div>
   </div>
 );
 
-const ReceiptCard = ({ name, size }: any) => (
-  <div className="flex items-center justify-between p-5 bg-slate-50/50 border border-slate-100 rounded-2xl hover:bg-white hover:border-slate-200 transition-all cursor-pointer group shadow-sm">
+const ReceiptCard = ({ name, size, url }: any) => (
+  <div 
+    onClick={() => url && window.open(url, '_blank')}
+    className="flex items-center justify-between p-5 bg-slate-50/50 border border-slate-100 rounded-2xl hover:bg-white hover:border-slate-200 transition-all cursor-pointer group shadow-sm"
+  >
     <div className="flex items-center gap-3">
       <div className="p-2.5 bg-white rounded-xl text-slate-400 group-hover:text-black shadow-sm transition-all border border-slate-100">
         <ExternalLink size={18} />
