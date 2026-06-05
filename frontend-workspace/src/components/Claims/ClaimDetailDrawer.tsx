@@ -179,7 +179,7 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
               ) : (
                 <>
                   <div className="grid grid-cols-3 gap-6">
-                    <SummaryCard label="Requested Total" value={claim.totalAmount} />
+                    <SummaryCard label="Requested Total" value={(() => { const S: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; const sym = S[claim.currency || 'INR'] ?? claim.currency ?? '₹'; return typeof claim.totalAmount === 'string' ? claim.totalAmount.replace(/^₹/, sym) : claim.totalAmount; })()} />
                     <SummaryCard 
                       label="Current Status" 
                       value={
@@ -238,7 +238,7 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                             date={item.expense_date}
                             category={item.category}
                             desc={item.description || item.merchant_name}
-                            amount={`₹${parseFloat(item.amount).toLocaleString('en-IN')}`}
+                            amount={`${(() => { const S: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; return S[item.currency || 'INR'] ?? item.currency ?? '₹'; })()}${parseFloat(item.amount).toLocaleString('en-IN')}`}
                             receiptUrl={item.receipt_url}
                             bankUrl={item.bank_url}
                             receiptFile={item.receipt_file}
@@ -247,7 +247,7 @@ export const ClaimDetailDrawer: React.FC<ClaimDetailDrawerProps> = ({ isOpen, on
                         ))
                       ) : (
                         <>
-                          <ItemRow date={claim.startDate || "Oct 12, 2024"} category={claim.category || "Travel"} desc={claim.title} amount={claim.totalAmount} tax="₹1,530.00" />
+                          <ItemRow date={claim.startDate || "Oct 12, 2024"} category={claim.category || "Travel"} desc={claim.title} amount={(() => { const S: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; const sym = S[claim.currency || 'INR'] ?? claim.currency ?? '₹'; return typeof claim.totalAmount === 'string' ? claim.totalAmount.replace(/^₹/, sym) : claim.totalAmount; })()} tax="₹1,530.00" />
                         </>
                       )}
                     </div>
