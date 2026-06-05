@@ -190,7 +190,7 @@ export const MyClaims: React.FC = () => {
                       <span className="text-xs font-semibold text-slate-400">{claim.date}</span>
                     </td>
                     <td className="px-6 py-4">
-                      <span className="text-sm font-black text-slate-900">{claim.totalAmount}</span>
+                      <span className="text-sm font-black text-slate-900">{(() => { const S: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; const claimCurrency = claim.items[0]?.currency_code || 'INR'; const sym = S[claimCurrency] ?? claimCurrency ?? '₹'; return typeof claim.totalAmount === 'string' ? claim.totalAmount.replace(/^₹/, sym) : claim.totalAmount; })()}</span>
                     </td>
                     <td className="px-6 py-4">
                       <div className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-full text-[10px] font-black uppercase tracking-wide border ${cfg.bg} ${cfg.text} ${cfg.border}`}>

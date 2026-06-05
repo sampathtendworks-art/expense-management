@@ -68,6 +68,7 @@ media/
 .venv
 env/
 venv/
+venv_windows/
 ENV/
 env.bak/
 venv.bak/

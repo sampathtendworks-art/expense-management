@@ -13,7 +13,7 @@ client = TestClient(app)
 MOCK_EXTRACTED = {
     "merchant_name": "Uber",
     "expense_date": "2026-05-27",
-    "total_amount": 450.0,
+    "amount_before_tax": 409.5,
     "tax_amount": 40.5,
     "currency_code": "INR",
     "ocr_confidence": 0.98,
@@ -33,7 +33,7 @@ def test_parse_receipt_success_contract(mock_gemini):
     extracted = body["extracted_data"]
     assert extracted["merchant_name"] == "Uber"
     assert extracted["expense_date"] == "2026-05-27"
-    assert extracted["total_amount"] == 450.0
+    assert extracted["amount_before_tax"] == 409.5
     assert extracted["tax_amount"] == 40.5
     assert extracted["currency_code"] == "INR"
     assert extracted["ocr_confidence"] == 0.98

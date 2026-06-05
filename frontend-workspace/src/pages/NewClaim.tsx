@@ -44,6 +44,7 @@ interface ItemEntry {
   ocrValue?: string;
   ocrConfirmed?: boolean;
   ocrStatus?: 'idle' | 'processing' | 'ready' | 'error';
+  ocrError?: string;
 }
 
 const OCR_SIDECAR_URL = '/ocr-api/api/v1/ocr/parse';
@@ -86,7 +87,8 @@ export const NewClaim: React.FC = () => {
   const [receiptUrl, setReceiptUrl] = useState<string | null>(null);
   const [bankStatementFile, setBankStatementFile] = useState<string | null>(null);
   const [bankUrl, setBankUrl] = useState<string | null>(null);
-  const [aiOcrStatus, setAiOcrStatus] = useState<'idle' | 'processing' | 'ready' | 'autofilled'>('idle');
+  const [aiOcrStatus, setAiOcrStatus] = useState<'idle' | 'processing' | 'ready' | 'autofilled' | 'error'>('idle');
+  const [ocrErrorMessage, setOcrErrorMessage] = useState<string | null>(null);
   const [reconciliationMismatch, setReconciliationMismatch] = useState<boolean>(false);
   const [userGradeTrust, setUserGradeTrust] = useState<'high' | 'normal' | 'low'>('normal');
   const [ocrTamperingDetected, setOcrTamperingDetected] = useState<boolean>(false);
@@ -106,6 +108,9 @@ export const NewClaim: React.FC = () => {
 
 
   const isStepValid = () => {
+    // [CONTINUE DEBUG]
+    console.log('[CONTINUE DEBUG] step:', currentStep, 'claimType:', claimType, 'items:', JSON.parse(JSON.stringify(items)), 'claimTitle:', claimTitle, 'projectCode:', projectCode, 'receiptFile:', receiptFile, 'bankStatementFile:', bankStatementFile);
+
     if (currentStep === 'details') {
       return (
         claimTitle.trim() !== '' &&
@@ -125,17 +130,8 @@ export const NewClaim: React.FC = () => {
 
       if (claimType === 'multiline') {
         const filesValid = items.every((item) => item.receiptFile && item.bankFile);
-        return itemsValid && filesValid && claimTitle.trim() !== '' && projectCode.trim() !== '';
-        const perItemFilesValid = items.every((item) => item.receiptFile && item.bankFile);
-        // Multiline requires global overview details AND per-item details
-        return (
-          itemsValid && 
-          perItemFilesValid && 
-          claimTitle.trim() !== '' && 
-          projectCode.trim() !== '' &&
-          receiptFile !== null && 
-          bankStatementFile !== null
-        );
+        // Multiline skips the details step, so projectCode is NOT required globally
+        return itemsValid && filesValid && claimTitle.trim() !== '';
       }
       return itemsValid;
     }
@@ -191,6 +187,7 @@ export const NewClaim: React.FC = () => {
 
   const triggerAiParsing = async (file: File) => {
     setAiOcrStatus('processing');
+    setOcrErrorMessage(null);
     const formData = new FormData();
     formData.append('file', file);
 
@@ -202,7 +199,7 @@ export const NewClaim: React.FC = () => {
       const data = await response.json();
       console.log('[OCR] Response:', data); 
 
-      if (data.status === 'success' && data.extracted_data) {
+      if (response.ok && data.status === 'success' && data.extracted_data) {
         const extracted = data.extracted_data;
         console.log('[OCR] Extracted data:', extracted);
         setOcrData(extracted);
@@ -214,46 +211,60 @@ export const NewClaim: React.FC = () => {
 
         const merchant = extracted.merchant_name || 'Unknown Merchant';
         const expenseDate = extracted.expense_date || new Date().toISOString().split('T')[0];
-        const totalAmount = (extracted.total_amount ?? extracted.amount ?? '0').toString();
+        // Fix 4: use amount_before_tax (pre-tax subtotal); calculateTotal() adds tax on top
+        const amountBeforeTax = (extracted.amount_before_tax ?? extracted.amount ?? '0').toString();
         const taxAmount = (extracted.tax_amount ?? extracted.tax ?? '0').toString();
         const category = extracted.category || 'Local Travel';
+        // Fix 5: wire currency from OCR response
+        const currency = extracted.currency_code || 'INR';
+
+        const invoiceId = extracted.invoice_id || '';
+
+        // End date: use OCR end_date if present, otherwise fall back to the same as start date
+        const endDate = extracted.end_date || expenseDate;
 
         setClaimTitle(`Expense at ${merchant}`);
         setReportCategory(category);
         setTripStartDate(expenseDate);
+        setTripEndDate(endDate);
+        // Wire invoice_id from OCR into the Invoice ID field
+        setProjectCode(invoiceId);
 
         setItems([
           {
             id: Date.now(),
             date: expenseDate,
             category: category,
-            amount: totalAmount,
+            // Fix 4: amount = pre-tax subtotal so that amount + tax = grand total
+            amount: amountBeforeTax,
             tax: taxAmount,
             desc: `Automated scan from ${merchant}`,
             billable: false,
-            currency: 'INR',
+            // Fix 5: set currency from OCR
+            currency: currency,
             paymentMode: 'Personal Card',
-            projectCode: '',
+            projectCode: invoiceId,
             merchantName: merchant,
             receiptFile: file.name,
-          receiptUrl: URL.createObjectURL(file),
-            ocrValue: totalAmount,
+            receiptUrl: URL.createObjectURL(file),
+            ocrValue: amountBeforeTax,
             ocrConfirmed: true
           }
         ]);
       } else {
         console.warn('[OCR] Unexpected response structure:', data);
-        setAiOcrStatus('idle');
+        setOcrErrorMessage(data.detail || 'Unexpected response structure from OCR.');
+        setAiOcrStatus('error');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('[OCR] Network/parse error:', error);
-      // Don't set to 'ready' on failure — there's no data to auto-fill
-      setAiOcrStatus('idle');
+      setOcrErrorMessage(error.message || 'Network/connection error.');
+      setAiOcrStatus('error');
     }
   };
 
   const triggerLineItemOcr = async (file: File, idx: number) => {
-    setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'processing', receiptFile: file.name } : item));
+    setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'processing', ocrError: undefined, receiptFile: file.name } : item));
 
     const formData = new FormData();
     formData.append('file', file);
@@ -266,13 +277,18 @@ export const NewClaim: React.FC = () => {
       const data = await response.json(); 
       console.log(`[OCR line ${idx}] Response:`, data);
 
-      if (data.status === 'success' && data.extracted_data) {
+      if (response.ok && data.status === 'success' && data.extracted_data) {
         const extracted = data.extracted_data;
         const merchant = extracted.merchant_name || 'Unknown Merchant';
         const expenseDate = extracted.expense_date || new Date().toISOString().split('T')[0];
-        const totalAmount = (extracted.total_amount ?? extracted.amount ?? '').toString();
+        // Fix 4: use amount_before_tax for line items too
+        const amountBeforeTax = (extracted.amount_before_tax ?? extracted.amount ?? '').toString();
         const taxAmount = (extracted.tax_amount ?? extracted.tax ?? '').toString();
         const category = extracted.category || categories[0]?.name || 'Local Travel';
+        // Fix 5: wire currency from OCR response for line items
+        const currency = extracted.currency_code || 'INR';
+        // Wire invoice_id into per-item projectCode
+        const lineInvoiceId = extracted.invoice_id || '';
 
         if (extracted.tampering_detected) {
           setOcrTamperingDetected(true);
@@ -282,11 +298,16 @@ export const NewClaim: React.FC = () => {
           ...item,
           date: expenseDate,
           category: category,
-          amount: totalAmount,
+          // Fix 4: amount = pre-tax subtotal
+          amount: amountBeforeTax,
           tax: taxAmount,
           merchantName: merchant,
           desc: `Automated scan from ${merchant}`,
-          ocrValue: totalAmount,
+          // Fix 5: set currency from OCR
+          currency: currency,
+          // Wire invoice_id to per-item projectCode field
+          projectCode: lineInvoiceId,
+          ocrValue: amountBeforeTax,
           ocrConfirmed: true,
           ocrStatus: 'ready'
         } : item));
@@ -295,11 +316,13 @@ export const NewClaim: React.FC = () => {
           setClaimTitle(`Expense: ${merchant}`);
         }
       } else {
-        setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'error' } : item));
+        const errMsg = data.detail || 'Failed to extract data.';
+        setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'error', ocrError: errMsg } : item));
       } 
-    } catch (error) {
+    } catch (error: any) {
       console.error('[OCR] Error:', error);
-      setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'error' } : item));
+      const errMsg = error.message || 'Connection error.';
+      setItems(prev => prev.map((item, i) => i === idx ? { ...item, ocrStatus: 'error', ocrError: errMsg } : item));
     }
   };
 
@@ -880,15 +903,48 @@ export const NewClaim: React.FC = () => {
                               <Paperclip size={12} className="text-slate-400 shrink-0" />
                               {receiptFile}
                             </div>
-                            {receiptUrl && (
-                              <button 
-                                type="button" 
-                                onClick={() => window.open(receiptUrl, '_blank')}
-                                className="flex items-center gap-1.5 text-[10px] font-black text-blue-650 uppercase hover:underline cursor-pointer ml-1"
+                            <div className="flex items-center gap-3">
+                              {receiptUrl && (
+                                <button 
+                                  type="button" 
+                                  onClick={() => window.open(receiptUrl, '_blank')}
+                                  className="flex items-center gap-1.5 text-[10px] font-black text-blue-650 uppercase hover:underline cursor-pointer ml-1"
+                                >
+                                  <Eye size={12} /> View Preview
+                                </button>
+                              )}
+                              {/* Fix 6: Remove button for main receipt */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setReceiptFile(null);
+                                  setReceiptUrl(null);
+                                  setOcrData(null);
+                                  setAiOcrStatus('idle');
+                                  setOcrTamperingDetected(false);
+                                  setClaimTitle('');
+                                  setReportCategory('Travel Expenses');
+                                  setTripStartDate('');
+                                  setTripEndDate('');
+                                  setItems([{
+                                    id: Date.now(),
+                                    date: new Date().toISOString().split('T')[0],
+                                    category: categories[0]?.name || 'Local Travel',
+                                    amount: '', tax: '', desc: '',
+                                    billable: false,
+                                    currency: 'INR',
+                                    paymentMode: 'Personal Card',
+                                    projectCode: '',
+                                    merchantName: '',
+                                  }]);
+                                  const picker = document.getElementById('receipt-file-picker') as HTMLInputElement;
+                                  if (picker) picker.value = '';
+                                }}
+                                className="flex items-center gap-1.5 text-[10px] font-black text-rose-500 uppercase hover:underline cursor-pointer ml-1"
                               >
-                                <Eye size={12} /> View Preview
+                                <Trash2 size={12} /> Remove
                               </button>
-                            )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -920,15 +976,31 @@ export const NewClaim: React.FC = () => {
                               <Paperclip size={12} className="text-slate-400 shrink-0" />
                               {bankStatementFile}
                             </div>
-                            {bankUrl && (
-                              <button 
-                                type="button" 
-                                onClick={() => window.open(bankUrl, '_blank')}
-                                className="flex items-center gap-1.5 text-[10px] font-black text-[#1E3A5F] uppercase hover:underline cursor-pointer ml-1"
+                            <div className="flex items-center gap-3">
+                              {bankUrl && (
+                                <button 
+                                  type="button" 
+                                  onClick={() => window.open(bankUrl, '_blank')}
+                                  className="flex items-center gap-1.5 text-[10px] font-black text-[#1E3A5F] uppercase hover:underline cursor-pointer ml-1"
+                                >
+                                  <Eye size={12} /> View Preview
+                                </button>
+                              )}
+                              {/* Fix 6: Remove button for bank statement */}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBankStatementFile(null);
+                                  setBankUrl(null);
+                                  setReconciliationMismatch(false);
+                                  const picker = document.getElementById('bank-file-picker') as HTMLInputElement;
+                                  if (picker) picker.value = '';
+                                }}
+                                className="flex items-center gap-1.5 text-[10px] font-black text-rose-500 uppercase hover:underline cursor-pointer ml-1"
                               >
-                                <Eye size={12} /> View Preview
+                                <Trash2 size={12} /> Remove
                               </button>
-                            )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -941,9 +1013,12 @@ export const NewClaim: React.FC = () => {
                             <Zap size={14} className="animate-pulse" />
                             AI OCR Smart Auto-Fill
                           </p>
-                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${aiOcrStatus === 'processing' ? 'bg-amber-500/20 text-amber-300 animate-pulse' : 'bg-emerald-500/20 text-emerald-300'
+                          <span className={`text-[10px] font-black uppercase tracking-widest px-2.5 py-0.5 rounded-full ${
+                              aiOcrStatus === 'processing' ? 'bg-amber-500/20 text-amber-300 animate-pulse' :
+                              aiOcrStatus === 'error' ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'
                             }`}>
-                            {aiOcrStatus === 'processing' ? 'Analyzing file...' : 'Analysis Ready'}
+                            {aiOcrStatus === 'processing' ? 'Analyzing file...' : 
+                             aiOcrStatus === 'error' ? 'Analysis Failed' : 'Analysis Ready'}
                           </span> 
                         </div>
           
@@ -961,11 +1036,20 @@ export const NewClaim: React.FC = () => {
             </div>
           )}
 
-          {aiOcrStatus !== 'processing' && (
+          {aiOcrStatus === 'error' && (
+            <div className="text-[11px] text-rose-300 font-semibold space-y-1">
+              <p>⚠️ Failed to auto-fill details from receipt:</p>
+              <p className="bg-black/20 p-2.5 rounded-xl border border-rose-500/30 text-rose-200 break-words font-mono text-[10px]">
+                {ocrErrorMessage}
+              </p>
+            </div>
+          )}
+
+          {aiOcrStatus !== 'processing' && aiOcrStatus !== 'error' && (
             <div className="flex items-center justify-between">
               <div className="text-[11px] text-slate-350 space-y-0.5 font-semibold">
                 <p>📌 <span className="font-black text-[#FAF8F3]">Merchant:</span> {ocrData ? ocrData.merchant_name : 'Indigo Cabs / Airlines'}</p>
-                <p>💰 <span className="font-black text-[#FAF8F3]">Scanned Total:</span> ₹{ocrData ? parseFloat(ocrData.total_amount || '0').toLocaleString('en-IN') : '8,500.00'} (Tax ₹{ocrData ? parseFloat(ocrData.tax_amount || '0').toLocaleString('en-IN') : '1,530.00'})</p>
+                <p>💰 <span className="font-black text-[#FAF8F3]">Scanned Total:</span> {(() => { const CURRENCY_SYMBOLS: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; const sym = ocrData ? (CURRENCY_SYMBOLS[ocrData.currency_code || 'INR'] ?? ocrData.currency_code) : '₹'; return `${sym}${ocrData ? parseFloat(ocrData.amount_before_tax || '0').toLocaleString('en-IN') : '8,500.00'} (Tax ${sym}${ocrData ? parseFloat(ocrData.tax_amount || '0').toLocaleString('en-IN') : '1,530.00'})`; })()}</p>
                 <p>📅 <span className="font-black text-[#FAF8F3]">Scanned Date:</span> {ocrData ? ocrData.expense_date : '2024-10-18'}</p>
               </div>
             </div>
@@ -1004,6 +1088,9 @@ export const NewClaim: React.FC = () => {
         {items.map((item, idx) => {
           const policyCheck = evaluateItemPolicy(item);
           const isOcrModified = item.ocrValue && parseFloat(item.amount) > parseFloat(item.ocrValue) * 1.5;
+          // Fix 2: dynamic currency symbol per item
+          const CURRENCY_SYMBOLS: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' };
+          const currSymbol = CURRENCY_SYMBOLS[item.currency || 'INR'] ?? item.currency;
 
           return (
             <motion.div
@@ -1068,7 +1155,8 @@ export const NewClaim: React.FC = () => {
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Amount <span className="text-rose-500">*</span></label>
                   <div className="relative">
-                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">₹</span>
+                    {/* Fix 2: dynamic currency symbol */}
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">{currSymbol}</span>
                     <input
                       type="number"
                       value={item.amount}
@@ -1084,17 +1172,21 @@ export const NewClaim: React.FC = () => {
                 </div>
                 <div className="space-y-1.5">
                   <label className="text-[11px] font-black text-slate-500 uppercase tracking-wider">Tax/GST <span className="text-rose-500">*</span></label>
-                  <input
-                    type="number"
-                    value={item.tax}
-                    onChange={(e) => {
-                      const newItems = [...items];
-                      newItems[idx].tax = e.target.value;
-                      setItems(newItems);
-                    }}
-                    placeholder="0.00"
-                    className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold"
-                  />
+                  {/* Fix 2: wrap Tax/GST in relative div to show dynamic symbol */}
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs font-bold">{currSymbol}</span>
+                    <input
+                      type="number"
+                      value={item.tax}
+                      onChange={(e) => {
+                        const newItems = [...items];
+                        newItems[idx].tax = e.target.value;
+                        setItems(newItems);
+                      }}
+                      placeholder="0.00"
+                      className="w-full pl-7 pr-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm outline-none font-bold"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -1226,6 +1318,38 @@ export const NewClaim: React.FC = () => {
                             <Loader2 size={10} className="animate-spin" /> AI Analyzing...
                           </div>
                         )}
+                        {item.ocrStatus === 'error' && (
+                          <div className="mt-2 text-rose-600 text-[9px] font-bold flex flex-col gap-1 bg-rose-550/5 border border-rose-100 p-2 rounded-lg">
+                            <span className="flex items-center gap-1 text-[8px] uppercase tracking-wider text-rose-700">⚠️ AI OCR Error</span>
+                            <span className="font-mono text-[8px] text-rose-500 break-words">{item.ocrError || 'Unable to read receipt.'}</span>
+                          </div>
+                        )}
+                        {item.receiptFile && item.ocrStatus !== 'processing' && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const picker = document.getElementById(`item-receipt-${idx}`) as HTMLInputElement;
+                              if (picker) picker.value = '';
+                              setItems(prev => prev.map((it, i) => i === idx ? {
+                                ...it,
+                                receiptFile: undefined,
+                                receiptUrl: undefined,
+                                amount: '',
+                                tax: '',
+                                merchantName: '',
+                                desc: '',
+                                projectCode: '',
+                                currency: 'INR',
+                                ocrValue: undefined,
+                                ocrConfirmed: false,
+                                ocrStatus: 'idle',
+                              } : it));
+                            }}
+                            className="mt-1 flex items-center gap-1 text-[8px] font-black text-rose-500 uppercase hover:underline cursor-pointer"
+                          >
+                            <Trash2 size={9} /> Remove
+                          </button>
+                        )}
                       </div>
 
                       {/* Per-item Bank Statement */}
@@ -1260,6 +1384,23 @@ export const NewClaim: React.FC = () => {
                         >
                           {item.bankFile ? `[ ${item.bankFile} ]` : '[ Upload Statement ]'}
                         </button>
+                        {item.bankFile && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const picker = document.getElementById(`item-bank-${idx}`) as HTMLInputElement;
+                              if (picker) picker.value = '';
+                              setItems(prev => prev.map((it, i) => i === idx ? {
+                                ...it,
+                                bankFile: undefined,
+                                bankUrl: undefined,
+                              } : it));
+                            }}
+                            className="mt-1 flex items-center gap-1 text-[8px] font-black text-rose-500 uppercase hover:underline cursor-pointer"
+                          >
+                            <Trash2 size={9} /> Remove
+                          </button>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1327,7 +1468,20 @@ export const NewClaim: React.FC = () => {
           </div>
           <div className="text-right">
             <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Total Payable</p>
-            <h4 className="text-3xl font-black text-slate-900">₹{calculateTotal()}</h4>
+            {/* Fix 4: use first item's currency symbol, or mixed if multiple currencies */}
+            <h4 className="text-3xl font-black text-slate-900">{(() => {
+              const CURRENCY_SYMBOLS: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' };
+              const currencies = [...new Set(items.map(it => it.currency || 'INR'))];
+              if (currencies.length === 1) {
+                return `${CURRENCY_SYMBOLS[currencies[0]] ?? currencies[0]}${calculateTotal()}`;
+              }
+              // Multiple currencies: show each item's total separately
+              return items.map(it => {
+                const sym = CURRENCY_SYMBOLS[it.currency || 'INR'] ?? it.currency;
+                const amt = (parseFloat(it.amount || '0') + parseFloat(it.tax || '0'));
+                return `${sym}${amt.toLocaleString('en-IN')}`;
+              }).join(' + ');
+            })()}</h4>
           </div>
         </div>
  
@@ -1341,7 +1495,7 @@ export const NewClaim: React.FC = () => {
               <ReviewRow label="Title" value={claimTitle || 'N/A'} />
               <ReviewRow label="Category" value={reportCategory} />
               <ReviewRow label="Invoice ID" value={projectCode || 'N/A'} />
-              <ReviewRow label="Dates" value={tripStartDate ? `${tripStartDate} - ${tripEndDate || '...'}` : 'N/A'} />
+              <ReviewRow label="Dates" value={tripStartDate ? `${tripStartDate} - ${tripEndDate || tripStartDate}` : 'N/A'} />
             </div>
           </div>
 
@@ -1357,6 +1511,38 @@ export const NewClaim: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {/* Multiline: show all individual line items in the review */}
+        {claimType === 'multiline' && items.length > 0 && (
+          <div className="space-y-4 pt-4 border-t border-slate-100">
+            <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest flex items-center gap-2">
+              <Receipt size={14} />
+              Line Items ({items.length})
+            </h4>
+            <div className="space-y-3">
+              {items.map((item, idx) => (
+                <div key={item.id} className="bg-slate-50 rounded-2xl px-6 py-4 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Item #{idx + 1} — {item.merchantName || 'Unknown'}</span>
+                    {/* Fix 4: per-item currency symbol */}
+                    <span className="text-xs font-black text-slate-900">{(() => { const CURRENCY_SYMBOLS: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; return (CURRENCY_SYMBOLS[item.currency || 'INR'] ?? item.currency) + (parseFloat(item.amount || '0') + parseFloat(item.tax || '0')).toLocaleString('en-IN'); })()}</span>
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <ReviewRow label="Category" value={item.category || 'N/A'} />
+                    <ReviewRow label="Date" value={item.date || 'N/A'} />
+                    <ReviewRow label="Invoice ID" value={item.projectCode || 'N/A'} />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    {/* Fix 4: per-item currency symbol on Amount and Tax rows */}
+                    <ReviewRow label="Amount" value={`${(() => { const S: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; return S[item.currency || 'INR'] ?? item.currency; })()}${parseFloat(item.amount || '0').toLocaleString('en-IN')}`} />
+                    <ReviewRow label="Tax" value={`${(() => { const S: Record<string, string> = { INR: '₹', USD: '$', EUR: '€', GBP: '£', AED: 'د.إ' }; return S[item.currency || 'INR'] ?? item.currency; })()}${parseFloat(item.tax || '0').toLocaleString('en-IN')}`} />
+                    <ReviewRow label="Currency" value={item.currency || 'INR'} />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </motion.div>
   )
